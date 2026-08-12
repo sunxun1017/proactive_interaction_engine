@@ -20,6 +20,7 @@ const (
 	QuietModeEnabled    Kind = "QUIET_MODE_ENABLED"
 	QuietModeDisabled   Kind = "QUIET_MODE_DISABLED"
 	UserRejected        Kind = "USER_REJECTED"
+	UserReplied         Kind = "USER_REPLIED"
 )
 
 // SemanticEvent is a fact emitted after temporal compilation.
@@ -57,6 +58,21 @@ func (e SemanticEvent) ValidateUserRejection() error {
 	const op = "validate user rejection event"
 	if e.Kind != UserRejected {
 		return fault.New(fault.InvalidInput, op, fmt.Errorf("event kind %q is not USER_REJECTED", e.Kind))
+	}
+	if e.ID == "" || e.SubjectID == "" || e.TraceID == "" {
+		return fault.New(fault.InvalidInput, op, errors.New("id, subject_id, and trace_id are required"))
+	}
+	if e.OccurredAt.IsZero() {
+		return fault.New(fault.InvalidInput, op, errors.New("occurred_at is required"))
+	}
+	return nil
+}
+
+// ValidateUserReply validates a canonical user-feedback fact.
+func (e SemanticEvent) ValidateUserReply() error {
+	const op = "validate user reply event"
+	if e.Kind != UserReplied {
+		return fault.New(fault.InvalidInput, op, fmt.Errorf("event kind %q is not USER_REPLIED", e.Kind))
 	}
 	if e.ID == "" || e.SubjectID == "" || e.TraceID == "" {
 		return fault.New(fault.InvalidInput, op, errors.New("id, subject_id, and trace_id are required"))
@@ -141,6 +157,9 @@ func (c *Compiler) Compile(input observation.Observation) []SemanticEvent {
 		}
 		timeline.quietKnown = true
 		timeline.quiet = value
+
+	case input.UserReply != nil:
+		output = newEvent(input, UserReplied)
 	}
 
 	c.subjects[input.SubjectID] = timeline

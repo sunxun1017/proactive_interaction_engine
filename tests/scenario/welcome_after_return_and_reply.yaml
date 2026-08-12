@@ -1,4 +1,4 @@
-name: welcome_after_return
+name: welcome_after_return_and_reply
 timeline:
   - at: 0s
     observation: person_presence
@@ -6,12 +6,15 @@ timeline:
   - at: 45m
     observation: person_presence
     present: true
+  - at: 45m4s
+    observation: user_reply
 expect:
   decisions:
     - GREET_SHORT
-  pending_wait: user.reply
-  outcomes: []
+  outcomes:
+    - ACCEPTED
   actions:
     - ATTEND_USER
     - ACKNOWLEDGE
     - SPEAK
+    - RETURN_IDLE

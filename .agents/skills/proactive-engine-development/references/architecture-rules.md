@@ -71,10 +71,14 @@ Never allow a model to move a robot, enable sensors, contact a person, change a 
 
 Input adapters prove registration, heartbeat, monotonic sequence, deduplication, TTL, reconnect, confidence validation, and protocol version handling.
 
+An input adapter may emit canonical `UserReply` only after it has determined that the signal is directed at the agent. The core treats it as a strongly typed observation and compiles a `USER_REPLIED` fact; it does not ingest raw audio, transcripts, reply content, or adapter-specific detection evidence. User reply is ordinary semantic input, never a P0 control command.
+
+The current application supports only the direct root-Sequence `WaitEvent(user.reply)` continuation. Start the Episode before dispatch so P0 rejection can target it; after the pre-wait actions finish, open the response window and keep the continuation in the application layer. Accept replies only in `[opened_at, deadline)`, record `ACCEPTED/USER_REPLIED`, and materialize post-wait action deadlines at actual dispatch time. Runtime lifecycle code must not interpret behavior nodes, Episode state, or reply semantics.
+
 Output adapters prove capability declaration, unsupported-action rejection, action-ID idempotency, cancellation, deadline enforcement, ordered status transitions, safe disconnect, and lease expiry.
 
 Explicit `USER_REJECTED` control follows two phases. The concurrent P0 phase cancels the active processing context and calls `ActionDriver.StopAll`; it must not mutate `WorldState` or Episode state. After the active processing goroutine is joined, the Runner serially commits the rejection semantic event, ends the matching Episode with a `REJECTED` Outcome, and projects the subject-local cooldown. The default explicit-rejection cooldown is 30 minutes and remains configuration-driven. Commit the user fact even when `StopAll` fails. Shutdown cancellation never creates a rejection.
 
-Do not claim `NO_RESPONSE` support until `WaitEvent` execution, its deterministic timeout, Episode completion, Outcome audit, and replay proof are implemented together.
+Do not claim generic `WaitEvent` or `NO_RESPONSE` support until deterministic timeout scheduling, Episode completion, Outcome audit, and replay proof are implemented together.
 
 ROS messages, vendor types, model tensors, database rows, and generated Protobuf messages never cross into the domain layer.

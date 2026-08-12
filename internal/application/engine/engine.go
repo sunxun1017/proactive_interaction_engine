@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"proactive-interaction-engine/internal/application/port"
 	"proactive-interaction-engine/internal/domain/behavior"
@@ -19,16 +18,17 @@ import (
 
 // Engine has single-writer semantics. Process observations from one goroutine.
 type Engine struct {
-	config    Config
-	ingress   *ingress
-	compiler  *event.Compiler
-	projector *state.Projector
-	episodes  *episode.Tracker
-	policy    decision.Policy
-	planner   behavior.Planner
-	driver    port.ActionDriver
-	recorder  port.AuditRecorder
-	clock     port.Clock
+	config       Config
+	ingress      *ingress
+	compiler     *event.Compiler
+	projector    *state.Projector
+	episodes     *episode.Tracker
+	pendingReply *pendingReplyContinuation
+	policy       decision.Policy
+	planner      behavior.Planner
+	driver       port.ActionDriver
+	recorder     port.AuditRecorder
+	clock        port.Clock
 }
 
 type Result struct {
@@ -36,7 +36,15 @@ type Result struct {
 	Decisions      []decision.Decision
 	Plans          []behavior.BehaviorPlan
 	ActionStatuses []behavior.ActionStatus
+	Outcomes       []episode.Outcome
 	Warnings       []string
+}
+
+type pendingReplyContinuation struct {
+	episodeID     string
+	interactionID string
+	subjectID     string
+	after         behavior.ActionPhase
 }
 
 func New(config Config, driver port.ActionDriver, recorder port.AuditRecorder, clock port.Clock) (*Engine, error) {
@@ -86,6 +94,14 @@ func (e *Engine) Process(ctx context.Context, input observation.Observation) (Re
 		e.bestEffortAudit(&result, func(auditCtx context.Context) error {
 			return e.recorder.RecordEvent(auditCtx, semanticEvent)
 		})
+		if semanticEvent.Kind == event.UserReplied {
+			statuses, err := e.acceptUserReply(ctx, &result, semanticEvent)
+			result.ActionStatuses = append(result.ActionStatuses, statuses...)
+			if err != nil {
+				return result, err
+			}
+			continue
+		}
 
 		snapshot := e.projector.Apply(semanticEvent)
 		outcome, err := decision.Evaluate(e.policy, snapshot, semanticEvent, e.config.ConfigHash)
@@ -112,8 +128,16 @@ func (e *Engine) Process(ctx context.Context, input observation.Observation) (Re
 		if err != nil {
 			return result, fmt.Errorf("plan decision %s: %w", outcome.ID, err)
 		}
+		phases, err := behavior.CompileUserReplyPhases(plan)
+		if err != nil {
+			return result, fmt.Errorf("compile reply phases for plan %s: %w", plan.ID, err)
+		}
+		if e.pendingReply != nil {
+			return result, fault.New(fault.PolicyBlocked, "start reply wait", errors.New("another reply continuation is pending"))
+		}
+		episodeID := "episode:" + outcome.InteractionID
 		if err := e.episodes.Start(episode.Episode{
-			ID:             "episode:" + outcome.InteractionID,
+			ID:             episodeID,
 			InteractionID:  outcome.InteractionID,
 			SubjectID:      semanticEvent.SubjectID,
 			DecisionID:     outcome.ID,
@@ -129,10 +153,20 @@ func (e *Engine) Process(ctx context.Context, input observation.Observation) (Re
 			return e.recorder.RecordPlan(auditCtx, plan)
 		})
 
-		statuses, err := e.dispatch(ctx, plan, now)
+		statuses, err := e.dispatchCommands(ctx, phases.Before.Commands(e.clock.Now()))
 		result.ActionStatuses = append(result.ActionStatuses, statuses...)
 		if err != nil {
 			return result, err
+		}
+		openedAt := e.clock.Now()
+		if err := e.episodes.OpenResponseWindow(episodeID, openedAt, phases.WaitFor); err != nil {
+			return result, fmt.Errorf("open reply window for episode %s: %w", episodeID, err)
+		}
+		e.pendingReply = &pendingReplyContinuation{
+			episodeID:     episodeID,
+			interactionID: outcome.InteractionID,
+			subjectID:     semanticEvent.SubjectID,
+			after:         phases.After,
 		}
 	}
 	return result, nil
@@ -148,9 +182,9 @@ func (e *Engine) capabilities(ctx context.Context) (behavior.Capabilities, error
 	return capabilities, nil
 }
 
-func (e *Engine) dispatch(ctx context.Context, plan behavior.BehaviorPlan, now time.Time) ([]behavior.ActionStatus, error) {
+func (e *Engine) dispatchCommands(ctx context.Context, commands []behavior.ActionCommand) ([]behavior.ActionStatus, error) {
 	var statuses []behavior.ActionStatus
-	for _, command := range plan.Commands(now) {
+	for _, command := range commands {
 		commandCtx, cancel := context.WithTimeout(ctx, command.Action.Timeout)
 		stream, err := e.driver.Execute(commandCtx, command)
 		if err != nil {
@@ -173,6 +207,30 @@ func (e *Engine) dispatch(ctx context.Context, plan behavior.BehaviorPlan, now t
 			}
 		}
 	nextCommand:
+	}
+	return statuses, nil
+}
+
+func (e *Engine) acceptUserReply(ctx context.Context, result *Result, input event.SemanticEvent) ([]behavior.ActionStatus, error) {
+	pending := e.pendingReply
+	if pending == nil || pending.subjectID != input.SubjectID {
+		return nil, nil
+	}
+	outcome, _, err := e.episodes.Accept(pending.episodeID, input)
+	if err != nil {
+		return nil, fmt.Errorf("accept user reply event %s: %w", input.ID, err)
+	}
+	if outcome == nil {
+		return nil, nil
+	}
+	e.pendingReply = nil
+	result.Outcomes = append(result.Outcomes, *outcome)
+	e.bestEffortAudit(result, func(auditCtx context.Context) error {
+		return e.recorder.RecordOutcome(auditCtx, *outcome)
+	})
+	statuses, err := e.dispatchCommands(ctx, pending.after.Commands(e.clock.Now()))
+	if err != nil {
+		return statuses, fmt.Errorf("dispatch accepted reply continuation %s: %w", pending.interactionID, err)
 	}
 	return statuses, nil
 }
@@ -254,6 +312,9 @@ func (e *Engine) CommitUserRejection(ctx context.Context, command control.Comman
 	}
 	if _, err := e.projector.ApplyUserRejection(feedback, e.config.RejectionCooldown); err != nil {
 		return fmt.Errorf("project rejection event %s: %w", feedback.ID, err)
+	}
+	if outcome != nil && e.pendingReply != nil && outcome.InteractionID == e.pendingReply.interactionID {
+		e.pendingReply = nil
 	}
 	e.bestEffortControlAudit(func(auditCtx context.Context) error {
 		return e.recorder.RecordEvent(auditCtx, feedback)

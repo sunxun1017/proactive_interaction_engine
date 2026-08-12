@@ -37,6 +37,31 @@ func TestCompilerDoesNotTreatBriefDropoutAsReturn(t *testing.T) {
 	}
 }
 
+func TestCompilerEmitsUserRepliedWithObservationCorrelation(t *testing.T) {
+	compiler := NewCompiler(30 * time.Minute)
+	at := time.Date(2026, time.August, 12, 8, 0, 0, 0, time.UTC)
+	reply := observation.UserReply{}
+	input := observation.Observation{
+		ID:         "reply-1",
+		SourceID:   "adapter-1",
+		SourceSeq:  1,
+		OccurredAt: at,
+		TTL:        time.Minute,
+		SubjectID:  "user-1",
+		Confidence: 1,
+		TraceID:    "trace-reply-1",
+		UserReply:  &reply,
+	}
+
+	got := compiler.Compile(input)
+	if len(got) != 1 || got[0].Kind != UserReplied {
+		t.Fatalf("Compile(reply) = %#v, want USER_REPLIED", got)
+	}
+	if got[0].SourceObservationID != input.ID || got[0].TraceID != input.TraceID || got[0].SubjectID != input.SubjectID || got[0].OccurredAt != at {
+		t.Fatalf("Compile(reply) correlation = %#v", got[0])
+	}
+}
+
 func personObservation(id string, seq uint64, at time.Time, present bool) observation.Observation {
 	payload := observation.PersonPresence{Present: present}
 	return observation.Observation{

@@ -27,3 +27,28 @@ func TestObservationValidateAtRejectsExpiredInput(t *testing.T) {
 		t.Fatalf("ValidateAt() error = %v, want StaleInput", err)
 	}
 }
+
+func TestObservationValidateAtAcceptsOnlyUserReplyPayload(t *testing.T) {
+	now := time.Date(2026, time.August, 12, 12, 0, 0, 0, time.UTC)
+	reply := UserReply{}
+	input := Observation{
+		ID:         "reply-1",
+		SourceID:   "replay",
+		SourceSeq:  1,
+		OccurredAt: now,
+		TTL:        time.Minute,
+		SubjectID:  "user-1",
+		Confidence: 1,
+		TraceID:    "trace-1",
+		UserReply:  &reply,
+	}
+	if err := input.ValidateAt(now); err != nil {
+		t.Fatalf("ValidateAt() error = %v", err)
+	}
+
+	present := PersonPresence{Present: true}
+	input.PersonPresence = &present
+	if err := input.ValidateAt(now); !fault.IsCode(err, fault.InvalidInput) {
+		t.Fatalf("ValidateAt(two payloads) error = %v, want InvalidInput", err)
+	}
+}

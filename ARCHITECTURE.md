@@ -69,6 +69,8 @@ Observation
 - ActionCommand：输出适配器可接受、拒绝、取消或超时的命令。
 - Outcome：一次 InteractionEpisode 的用户反馈结果。
 
+`UserReply` 是输入适配器已确认“用户正在回应智能体”后提交的规范化 Observation。核心不接收原始音频、转写文本、回复内容或识别启发式，只把该 Observation 编译为 `USER_REPLIED` 事实；用户回复不是 ControlCommand。
+
 ## Runtime and Degradation
 
 控制/拒绝为 P0，取消和动作状态为 P1，语义事件与决策为 P2，日志、记忆和遥测为 P3。所有队列有界；连续状态只保留最新值；控制命令和动作终态不可丢弃。
@@ -96,7 +98,12 @@ Observation
 -> Fake ActionDriver 执行并记录状态
 ```
 
-已完成的反馈子闭环为“显式拒绝 -> P0 停止 -> `REJECTED` Outcome -> 冷却硬守卫”。`WaitEvent` 执行、用户正常回应和 `NO_RESPONSE` 超时 Outcome 尚未完成，后续必须与确定性回放测试一起交付，不能把行为树中已有的 `WaitEvent` 节点视为运行时已支持。
+已完成两个反馈子闭环：
+
+- 显式拒绝 -> P0 停止 -> `REJECTED` Outcome -> 冷却硬守卫；
+- 适配器确认的 `UserReply` -> `USER_REPLIED` -> `ACCEPTED` Outcome -> 执行 `user.reply` 等待点后的动作。
+
+当前只支持根 Sequence 中唯一的 `WaitEvent(user.reply)` 专用 continuation，由 Application Engine 持有；Runner 不解释行为树或 Episode 语义。响应窗口采用半开区间 `[opened_at, deadline)`，回复后动作的 deadline 在实际下发时生成。通用 `WaitEvent`、确定性超时调度和 `NO_RESPONSE` Outcome 尚未完成。
 
 暂不引入 Kafka、Kubernetes、微服务拆分、动态插件、万能事件总线、完整 Event Sourcing、工作流平台、向量数据库实时依赖、LLM 总控制器或 ROS 领域类型。
 

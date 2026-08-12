@@ -44,6 +44,7 @@ After the user answers, capture every reusable decision before completing the ta
 - Never import ROS, OpenCV, PyTorch, CUDA, database drivers, HTTP/gRPC frameworks, OS device APIs, or vendor SDKs into `internal/domain`.
 - Never import concrete adapters from `internal/application`.
 - Keep raw audio, video frames, tensors, and model objects outside the engine. Accept canonical observations and semantic events only.
+- Accept `UserReply` only as a canonical Observation produced after an input adapter has determined that the user is responding to the agent. Keep raw audio, transcripts, reply content, and reply-detection heuristics outside the core.
 - Distinguish Event, Command, and Query types. Do not create an untyped message bus, `Any` payload, or arbitrary attributes map for core contracts.
 - Keep `WorldState` single-writer. Expose immutable snapshots to pure decision functions.
 - Keep the real-time path local and in-memory. Cloud models and durable storage must be optional and must have deadlines and fallbacks.

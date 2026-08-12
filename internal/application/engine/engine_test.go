@@ -10,6 +10,8 @@ import (
 	"proactive-interaction-engine/internal/domain/behavior"
 	"proactive-interaction-engine/internal/domain/control"
 	"proactive-interaction-engine/internal/domain/decision"
+	"proactive-interaction-engine/internal/domain/episode"
+	"proactive-interaction-engine/internal/domain/event"
 	"proactive-interaction-engine/internal/domain/fault"
 	"proactive-interaction-engine/internal/domain/observation"
 	engineclock "proactive-interaction-engine/internal/runtime/clock"
@@ -81,7 +83,7 @@ func TestStopAllForwardsTypedReason(t *testing.T) {
 }
 
 func TestCommitUserRejectionRecordsOneOutcomeAndProjectsCooldown(t *testing.T) {
-	engine, clock, _, audit := newTestEngineWithCooldown(t, 30*time.Minute)
+	engine, clock, driver, audit := newTestEngineWithCooldown(t, 30*time.Minute)
 	start := clock.Now()
 	processOK(t, engine, presenceObservation("left", 1, start, false))
 	clock.Advance(45 * time.Minute)
@@ -103,6 +105,11 @@ func TestCommitUserRejectionRecordsOneOutcomeAndProjectsCooldown(t *testing.T) {
 	}
 	if err := engine.CommitUserRejection(context.Background(), command); err != nil {
 		t.Fatalf("CommitUserRejection(duplicate) error = %v", err)
+	}
+	clock.Advance(time.Second)
+	lateReply := processOK(t, engine, replyObservation("reply-after-rejection", 3, clock.Now()))
+	if len(lateReply.Outcomes) != 0 || len(driver.Commands()) != 3 {
+		t.Fatalf("reply after rejection outcomes=%#v commands=%#v", lateReply.Outcomes, driver.Commands())
 	}
 
 	auditSnapshot := audit.Snapshot()
@@ -198,6 +205,67 @@ func TestRejectionCooldownBlocksUntilExclusiveDeadline(t *testing.T) {
 	}
 }
 
+func TestUserReplyDispatchesPostWaitPhaseAndRecordsAcceptedOutcome(t *testing.T) {
+	engine, clock, driver, audit := newTestEngineWithCooldown(t, 30*time.Minute)
+	processOK(t, engine, presenceObservation("left", 1, clock.Now(), false))
+	clock.Advance(45 * time.Minute)
+	processOK(t, engine, presenceObservation("returned", 2, clock.Now(), true))
+
+	commands := driver.Commands()
+	if got := commandActionTypes(commands); !equalCommandActionTypes(got, []behavior.ActionType{behavior.AttendUser, behavior.Acknowledge, behavior.Speak}) {
+		t.Fatalf("commands before reply = %#v", got)
+	}
+
+	clock.Advance(4 * time.Second)
+	result := processOK(t, engine, replyObservation("reply", 3, clock.Now()))
+	if len(result.Events) != 1 || result.Events[0].Kind != event.UserReplied {
+		t.Fatalf("Events = %#v, want USER_REPLIED", result.Events)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Kind != episode.Accepted {
+		t.Fatalf("Outcomes = %#v, want ACCEPTED", result.Outcomes)
+	}
+	commands = driver.Commands()
+	if got := commandActionTypes(commands); !equalCommandActionTypes(got, []behavior.ActionType{behavior.AttendUser, behavior.Acknowledge, behavior.Speak, behavior.ReturnIdle}) {
+		t.Fatalf("commands after reply = %#v", got)
+	}
+	if len(audit.Snapshot().Outcomes) != 1 || audit.Snapshot().Outcomes[0].Kind != episode.Accepted {
+		t.Fatalf("audited Outcomes = %#v", audit.Snapshot().Outcomes)
+	}
+}
+
+func TestInvalidUserReplyDoesNotDispatchPostPhaseOrEndEpisode(t *testing.T) {
+	engine, clock, driver, _ := newTestEngineWithCooldown(t, 30*time.Minute)
+	processOK(t, engine, presenceObservation("left", 1, clock.Now(), false))
+	clock.Advance(45 * time.Minute)
+	processOK(t, engine, presenceObservation("returned", 2, clock.Now(), true))
+	openedAt := clock.Now()
+
+	early := processOK(t, engine, replyObservation("early", 3, openedAt.Add(-time.Nanosecond)))
+	if len(early.Outcomes) != 0 || len(driver.Commands()) != 3 {
+		t.Fatalf("early reply outcomes=%#v commands=%#v", early.Outcomes, driver.Commands())
+	}
+
+	clock.Advance(time.Second)
+	valid := processOK(t, engine, replyObservation("valid", 4, clock.Now()))
+	if len(valid.Outcomes) != 1 || valid.Outcomes[0].Kind != episode.Accepted {
+		t.Fatalf("valid reply Outcomes = %#v, want ACCEPTED", valid.Outcomes)
+	}
+	if len(driver.Commands()) != 4 || driver.Commands()[3].Action.Type != behavior.ReturnIdle {
+		t.Fatalf("commands after valid reply = %#v", driver.Commands())
+	}
+}
+
+func TestUserReplyWithoutActiveEpisodeIsAuditedWithoutActionsOrOutcome(t *testing.T) {
+	engine, clock, driver, audit := newTestEngineWithCooldown(t, 30*time.Minute)
+	result := processOK(t, engine, replyObservation("reply", 1, clock.Now()))
+	if len(result.Events) != 1 || result.Events[0].Kind != event.UserReplied || len(result.Outcomes) != 0 {
+		t.Fatalf("Result = %#v", result)
+	}
+	if len(driver.Commands()) != 0 || len(audit.Snapshot().Outcomes) != 0 {
+		t.Fatalf("commands=%#v audit=%#v", driver.Commands(), audit.Snapshot())
+	}
+}
+
 func newTestEngine(t *testing.T) (*Engine, *engineclock.Fake, *fakeembodiment.Driver) {
 	t.Helper()
 	engine, clock, driver, _ := newTestEngineWithCooldown(t, 30*time.Minute)
@@ -273,4 +341,39 @@ func busyObservation(id string, seq uint64, at time.Time) observation.Observatio
 		TraceID:    "trace-test-1",
 		UserBusy:   &payload,
 	}
+}
+
+func replyObservation(id string, seq uint64, at time.Time) observation.Observation {
+	payload := observation.UserReply{}
+	return observation.Observation{
+		ID:         id,
+		SourceID:   "test",
+		SourceSeq:  seq,
+		OccurredAt: at,
+		TTL:        time.Minute,
+		SubjectID:  "user-1",
+		Confidence: 1,
+		TraceID:    "trace-" + id,
+		UserReply:  &payload,
+	}
+}
+
+func commandActionTypes(commands []behavior.ActionCommand) []behavior.ActionType {
+	output := make([]behavior.ActionType, 0, len(commands))
+	for _, command := range commands {
+		output = append(output, command.Action.Type)
+	}
+	return output
+}
+
+func equalCommandActionTypes(left, right []behavior.ActionType) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }

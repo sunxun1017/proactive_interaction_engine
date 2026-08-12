@@ -93,6 +93,27 @@ type ActionCommand struct {
 	Action             ActionSpec
 }
 
+type phaseAction struct {
+	ordinal int
+	action  ActionSpec
+}
+
+// ActionPhase is one side of the single supported user-reply wait. It retains
+// original plan ordinals while materializing deadlines only when dispatched.
+type ActionPhase struct {
+	interactionID string
+	traceID       string
+	actions       []phaseAction
+}
+
+// UserReplyPhases is a narrow compilation of the current root Sequence around
+// its one user.reply wait. It is not a general behavior cursor.
+type UserReplyPhases struct {
+	Before  ActionPhase
+	After   ActionPhase
+	WaitFor time.Duration
+}
+
 type ActionState string
 
 const (
@@ -211,18 +232,77 @@ func (p BehaviorPlan) Actions() []ActionSpec {
 // Commands materializes action commands with stable IDs and deadlines.
 func (p BehaviorPlan) Commands(now time.Time) []ActionCommand {
 	actions := p.Actions()
-	commands := make([]ActionCommand, 0, len(actions))
+	phaseActions := make([]phaseAction, 0, len(actions))
 	for index, action := range actions {
+		phaseActions = append(phaseActions, phaseAction{ordinal: index + 1, action: action})
+	}
+	return (ActionPhase{interactionID: p.InteractionID, traceID: p.TraceID, actions: phaseActions}).Commands(now)
+}
+
+// Commands materializes this phase with deadlines relative to its actual
+// dispatch time while retaining global action IDs from the original plan.
+func (p ActionPhase) Commands(now time.Time) []ActionCommand {
+	commands := make([]ActionCommand, 0, len(p.actions))
+	for _, item := range p.actions {
 		commands = append(commands, ActionCommand{
-			ID:                 fmt.Sprintf("%s:action:%d", p.InteractionID, index+1),
-			InteractionID:      p.InteractionID,
-			TraceID:            p.TraceID,
-			Deadline:           now.Add(action.Timeout),
+			ID:                 fmt.Sprintf("%s:action:%d", p.interactionID, item.ordinal),
+			InteractionID:      p.interactionID,
+			TraceID:            p.traceID,
+			Deadline:           now.Add(item.action.Timeout),
 			Preemption:         PreemptInterruptible,
-			RequiredCapability: action.Type,
+			RequiredCapability: item.action.Type,
 			Idempotency:        IdempotentByActionID,
-			Action:             action,
+			Action:             item.action,
 		})
 	}
 	return commands
+}
+
+// CompileUserReplyPhases validates and splits the currently supported root
+// Sequence around exactly one direct user.reply WaitEvent.
+func CompileUserReplyPhases(plan BehaviorPlan) (UserReplyPhases, error) {
+	const op = "compile user reply phases"
+	if plan.Root.Kind != Sequence {
+		return UserReplyPhases{}, fault.New(fault.InvalidInput, op, errors.New("behavior root must be SEQUENCE"))
+	}
+	newPhase := func(actions []phaseAction) ActionPhase {
+		return ActionPhase{interactionID: plan.InteractionID, traceID: plan.TraceID, actions: actions}
+	}
+	var before, after []phaseAction
+	waitFound := false
+	waitFor := time.Duration(0)
+	ordinal := 0
+	for _, node := range plan.Root.Children {
+		if len(node.Children) != 0 {
+			return UserReplyPhases{}, fault.New(fault.InvalidInput, op, errors.New("root sequence children must be direct leaves"))
+		}
+		switch node.Kind {
+		case Action:
+			if node.Action == nil {
+				return UserReplyPhases{}, fault.New(fault.InvalidInput, op, errors.New("action node requires action spec"))
+			}
+			ordinal++
+			item := phaseAction{ordinal: ordinal, action: *node.Action}
+			if waitFound {
+				after = append(after, item)
+			} else {
+				before = append(before, item)
+			}
+		case WaitEvent:
+			if waitFound || node.EventType != "user.reply" || node.WaitFor <= 0 {
+				return UserReplyPhases{}, fault.New(fault.InvalidInput, op, errors.New("exactly one positive user.reply wait is required"))
+			}
+			waitFound = true
+			waitFor = node.WaitFor
+		case Condition:
+		case Sequence, Parallel, Race:
+			return UserReplyPhases{}, fault.New(fault.InvalidInput, op, errors.New("nested behavior nodes are not supported by user reply phases"))
+		default:
+			return UserReplyPhases{}, fault.New(fault.InvalidInput, op, fmt.Errorf("unsupported root child %q", node.Kind))
+		}
+	}
+	if !waitFound {
+		return UserReplyPhases{}, fault.New(fault.InvalidInput, op, errors.New("user.reply wait is required"))
+	}
+	return UserReplyPhases{Before: newPhase(before), After: newPhase(after), WaitFor: waitFor}, nil
 }

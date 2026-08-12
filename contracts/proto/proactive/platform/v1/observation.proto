@@ -24,6 +24,7 @@ message ObservationEnvelope {
     SpeechActivity speech_activity = 23;
     UserControl user_control = 24;
     DeviceCondition device_condition = 25;
+    UserReply user_reply = 26;
   }
 }
 
@@ -45,6 +46,11 @@ enum BusyReason {
 message QuietMode {
   bool enabled = 1;
 }
+
+// UserReply is present only after the adapter has confirmed that the user's
+// response is directed at the agent. Raw audio and transcript content stay out
+// of this contract.
+message UserReply {}
 
 message SpeechActivity {
   bool active = 1;

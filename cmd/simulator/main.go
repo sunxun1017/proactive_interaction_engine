@@ -19,7 +19,11 @@ import (
 
 func main() {
 	busy := flag.Bool("busy", false, "mark the user as on a call before returning")
+	reply := flag.Bool("reply", false, "submit an adapter-confirmed user reply after the welcome")
 	flag.Parse()
+	if *busy && *reply {
+		fail(fmt.Errorf("busy and reply scenarios are mutually exclusive"))
+	}
 
 	startedAt := time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC)
 	clock := engineclock.NewFake(startedAt)
@@ -50,13 +54,30 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	var followUp *application.Result
+	if *reply {
+		clock.Advance(4 * time.Second)
+		value, processErr := engine.Process(ctx, userReply("obs-reply", nextSeq+1, clock.Now()))
+		if processErr != nil {
+			fail(processErr)
+		}
+		followUp = &value
+	}
+	scenario := "welcome_after_return"
+	if *busy {
+		scenario = "returned_while_on_call"
+	} else if *reply {
+		scenario = "welcome_after_return_and_reply"
+	}
 	output := struct {
 		Scenario string                      `json:"scenario"`
 		Result   application.Result          `json:"result"`
+		FollowUp *application.Result         `json:"follow_up,omitempty"`
 		Audit    memorystorage.AuditSnapshot `json:"audit"`
 	}{
-		Scenario: map[bool]string{true: "returned_while_on_call", false: "welcome_after_return"}[*busy],
+		Scenario: scenario,
 		Result:   result,
+		FollowUp: followUp,
 		Audit:    audit.Snapshot(),
 	}
 	encoded, err := json.MarshalIndent(output, "", "  ")
@@ -116,6 +137,21 @@ func busyOnCall(id string, seq uint64, at time.Time) observation.Observation {
 		Confidence: 0.98,
 		TraceID:    "trace-simulator-1",
 		UserBusy:   &payload,
+	}
+}
+
+func userReply(id string, seq uint64, at time.Time) observation.Observation {
+	payload := observation.UserReply{}
+	return observation.Observation{
+		ID:         id,
+		SourceID:   "simulator",
+		SourceSeq:  seq,
+		OccurredAt: at,
+		TTL:        time.Minute,
+		SubjectID:  "user-1",
+		Confidence: 0.99,
+		TraceID:    "trace-simulator-1",
+		UserReply:  &payload,
 	}
 }
 

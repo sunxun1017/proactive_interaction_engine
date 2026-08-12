@@ -23,6 +23,7 @@ type Observation struct {
 	PersonPresence *PersonPresence
 	UserBusy       *UserBusy
 	QuietMode      *QuietMode
+	UserReply      *UserReply
 }
 
 type PersonPresence struct {
@@ -45,6 +46,10 @@ type UserBusy struct {
 type QuietMode struct {
 	Enabled bool
 }
+
+// UserReply is a canonical signal already classified by its adapter as
+// directed at the agent. It deliberately contains no audio or transcript.
+type UserReply struct{}
 
 // ValidateAt enforces ingress invariants and TTL against the injected clock.
 func (o Observation) ValidateAt(now time.Time) error {
@@ -69,7 +74,7 @@ func (o Observation) ValidateAt(now time.Time) error {
 	}
 
 	payloads := 0
-	for _, present := range []bool{o.PersonPresence != nil, o.UserBusy != nil, o.QuietMode != nil} {
+	for _, present := range []bool{o.PersonPresence != nil, o.UserBusy != nil, o.QuietMode != nil, o.UserReply != nil} {
 		if present {
 			payloads++
 		}

@@ -10,7 +10,8 @@
 - Fake Embodiment、Fake Clock、内存审计记录器
 - 单写者 Runner、有界 Observation/Control 队列和 P0 `StopAll` 抢占
 - 显式用户拒绝的 `REJECTED` Outcome、30 分钟单用户冷却与确定性硬守卫
-- 正常欢迎与保持静默两种模拟场景
+- 由输入适配器确认的 `UserReply`、`ACCEPTED` Outcome 与回复后行为续接
+- 欢迎、用户回复与保持静默模拟场景
 - Protobuf 外部契约、行为与配置样例、架构依赖测试
 - 仓库级 Agent Skill 与 Git/CI 约束
 
@@ -22,11 +23,12 @@
 make test
 go run ./cmd/simulator
 go run ./cmd/simulator -busy
+go run ./cmd/simulator -reply
 ```
 
 正常场景会生成 `GREET_SHORT` 与抽象动作；`-busy` 场景会生成带 `USER_ON_CALL` 原因的 `SILENT`，且不下发动作。
 
-当前反馈闭环覆盖显式用户拒绝；`WaitEvent` 的实际等待、正常回应和 `NO_RESPONSE` 超时仍是下一阶段能力。
+`-reply` 使用 Fake Clock 演示用户在响应窗口内回复后记录 `ACCEPTED` 并执行 `RETURN_IDLE`。当前仅支持专用 `WaitEvent(user.reply)` continuation；通用等待执行器、自动超时和 `NO_RESPONSE` 仍是下一阶段能力。
 
 ## 目录
 
