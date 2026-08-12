@@ -12,15 +12,16 @@ import (
 type Kind string
 
 const (
-	PersonLeft          Kind = "PERSON_LEFT"
-	PersonDetected      Kind = "PERSON_DETECTED"
-	PersonReturned      Kind = "PERSON_RETURNED"
-	UserBecameBusy      Kind = "USER_BECAME_BUSY"
-	UserBecameAvailable Kind = "USER_BECAME_AVAILABLE"
-	QuietModeEnabled    Kind = "QUIET_MODE_ENABLED"
-	QuietModeDisabled   Kind = "QUIET_MODE_DISABLED"
-	UserRejected        Kind = "USER_REJECTED"
-	UserReplied         Kind = "USER_REPLIED"
+	PersonLeft            Kind = "PERSON_LEFT"
+	PersonDetected        Kind = "PERSON_DETECTED"
+	PersonReturned        Kind = "PERSON_RETURNED"
+	UserBecameBusy        Kind = "USER_BECAME_BUSY"
+	UserBecameAvailable   Kind = "USER_BECAME_AVAILABLE"
+	QuietModeEnabled      Kind = "QUIET_MODE_ENABLED"
+	QuietModeDisabled     Kind = "QUIET_MODE_DISABLED"
+	UserRejected          Kind = "USER_REJECTED"
+	UserReplied           Kind = "USER_REPLIED"
+	ResponseWindowExpired Kind = "RESPONSE_WINDOW_EXPIRED"
 )
 
 // SemanticEvent is a fact emitted after temporal compilation.
@@ -34,6 +35,8 @@ type SemanticEvent struct {
 	SourceObservationID string
 	AbsenceDuration     time.Duration
 	BusyReason          observation.BusyReason
+	ResponseEpisodeID   string
+	WakeupToken         string
 }
 
 // NewUserRejected constructs the semantic fact derived from an explicit user
@@ -76,6 +79,38 @@ func (e SemanticEvent) ValidateUserReply() error {
 	}
 	if e.ID == "" || e.SubjectID == "" || e.TraceID == "" {
 		return fault.New(fault.InvalidInput, op, errors.New("id, subject_id, and trace_id are required"))
+	}
+	if e.OccurredAt.IsZero() {
+		return fault.New(fault.InvalidInput, op, errors.New("occurred_at is required"))
+	}
+	return nil
+}
+
+// NewResponseWindowExpired constructs the deterministic semantic fact emitted
+// when an application-owned response window reaches its deadline.
+func NewResponseWindowExpired(id, episodeID, wakeupToken, subjectID string, occurredAt time.Time, traceID string) (SemanticEvent, error) {
+	input := SemanticEvent{
+		ID:                id,
+		Kind:              ResponseWindowExpired,
+		SubjectID:         subjectID,
+		OccurredAt:        occurredAt,
+		TraceID:           traceID,
+		ResponseEpisodeID: episodeID,
+		WakeupToken:       wakeupToken,
+	}
+	if err := input.ValidateResponseWindowExpired(); err != nil {
+		return SemanticEvent{}, err
+	}
+	return input, nil
+}
+
+func (e SemanticEvent) ValidateResponseWindowExpired() error {
+	const op = "validate response window expired event"
+	if e.Kind != ResponseWindowExpired {
+		return fault.New(fault.InvalidInput, op, fmt.Errorf("event kind %q is not RESPONSE_WINDOW_EXPIRED", e.Kind))
+	}
+	if e.ID == "" || e.ResponseEpisodeID == "" || e.WakeupToken == "" || e.SubjectID == "" || e.TraceID == "" {
+		return fault.New(fault.InvalidInput, op, errors.New("id, episode_id, wakeup_token, subject_id, and trace_id are required"))
 	}
 	if e.OccurredAt.IsZero() {
 		return fault.New(fault.InvalidInput, op, errors.New("occurred_at is required"))

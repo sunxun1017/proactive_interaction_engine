@@ -1,0 +1,25 @@
+name: welcome_after_return_and_rejection
+timeline:
+  - at: 0s
+    observation: person_presence
+    present: false
+  - at: 45m
+    observation: person_presence
+    present: true
+  - at: 45m
+    control: stop_all
+    reason: USER_REJECTED
+expect:
+  decisions:
+    - GREET_SHORT
+  outcomes:
+    - REJECTED
+  outcome_reasons:
+    - EXPLICIT_USER_REJECTION
+  rejection_cooldown: 30m
+  stop_reasons:
+    - USER_REJECTED
+  actions:
+    - ATTEND_USER
+    - ACKNOWLEDGE
+    - SPEAK

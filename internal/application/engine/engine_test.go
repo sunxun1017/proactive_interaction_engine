@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -266,6 +267,122 @@ func TestUserReplyWithoutActiveEpisodeIsAuditedWithoutActionsOrOutcome(t *testin
 	}
 }
 
+func TestConfigRequiresPositiveNoResponseCooldown(t *testing.T) {
+	config := validTestConfig()
+	config.NoResponseCooldown = 0
+	if err := config.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want no-response cooldown failure")
+	}
+	config.NoResponseCooldown = -time.Minute
+	if err := config.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want no-response cooldown failure")
+	}
+}
+
+func TestWelcomeExposesOneWakeupClearedByReplyOrRejection(t *testing.T) {
+	for _, completion := range []string{"reply", "rejection"} {
+		t.Run(completion, func(t *testing.T) {
+			engine, clock, _, _ := newTestEngineWithCooldown(t, 30*time.Minute)
+			processOK(t, engine, presenceObservation("left", 1, clock.Now(), false))
+			clock.Advance(45 * time.Minute)
+			processOK(t, engine, presenceObservation("returned", 2, clock.Now(), true))
+			wakeup, ok := engine.NextWakeup()
+			if !ok || wakeup.Token == "" || wakeup.Deadline != clock.Now().Add(8*time.Second) {
+				t.Fatalf("NextWakeup() = %#v, %t", wakeup, ok)
+			}
+			if completion == "reply" {
+				clock.Advance(time.Second)
+				processOK(t, engine, replyObservation("reply", 3, clock.Now()))
+			} else if err := engine.CommitUserRejection(context.Background(), rejectionControl("reject", clock.Now())); err != nil {
+				t.Fatalf("CommitUserRejection() error = %v", err)
+			}
+			if got, ok := engine.NextWakeup(); ok {
+				t.Fatalf("NextWakeup() = %#v, want none", got)
+			}
+		})
+	}
+}
+
+func TestAdvanceAtIgnoresStaleAndEarlyWakeupThenExpiresAtDeadline(t *testing.T) {
+	engine, clock, driver, audit := newTestEngineWithCooldown(t, 30*time.Minute)
+	processOK(t, engine, presenceObservation("left", 1, clock.Now(), false))
+	clock.Advance(45 * time.Minute)
+	processOK(t, engine, presenceObservation("returned", 2, clock.Now(), true))
+	wakeup, ok := engine.NextWakeup()
+	if !ok {
+		t.Fatal("NextWakeup() = none")
+	}
+	beforeSnapshot := engine.Snapshot()
+	beforeAudit := audit.Snapshot()
+	for _, stale := range []Wakeup{
+		{Token: wakeup.Token + ":stale", Deadline: wakeup.Deadline},
+		{Token: wakeup.Token, Deadline: wakeup.Deadline.Add(time.Second)},
+	} {
+		if result, err := engine.AdvanceAt(context.Background(), stale); err != nil || len(result.Events) != 0 || len(result.Outcomes) != 0 {
+			t.Fatalf("AdvanceAt(stale %#v) = %#v, %v", stale, result, err)
+		}
+		if engine.Snapshot() != beforeSnapshot || !reflect.DeepEqual(audit.Snapshot(), beforeAudit) || len(driver.Commands()) != 3 {
+			t.Fatal("stale wakeup changed state, audit, or actions")
+		}
+	}
+
+	if result, err := engine.AdvanceAt(context.Background(), wakeup); err != nil || len(result.Events) != 0 || len(result.Outcomes) != 0 {
+		t.Fatalf("AdvanceAt(early) = %#v, %v", result, err)
+	}
+	if _, ok := engine.NextWakeup(); !ok {
+		t.Fatal("early wakeup cleared pending deadline")
+	}
+
+	clock.Advance(8 * time.Second)
+	result, err := engine.AdvanceAt(context.Background(), wakeup)
+	if err != nil {
+		t.Fatalf("AdvanceAt(deadline) error = %v", err)
+	}
+	if len(result.Events) != 1 || result.Events[0].Kind != event.ResponseWindowExpired || result.Events[0].ID != "evt:"+wakeup.Token+":RESPONSE_WINDOW_EXPIRED" {
+		t.Fatalf("Events = %#v", result.Events)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Kind != episode.NoResponse {
+		t.Fatalf("Outcomes = %#v", result.Outcomes)
+	}
+	if got := engine.Snapshot(); got.NoResponseCooldownStartedAt != wakeup.Deadline || got.NoResponseCooldownUntil != wakeup.Deadline.Add(5*time.Minute) {
+		t.Fatalf("Snapshot = %#v", got)
+	}
+	if len(driver.Commands()) != 4 || driver.Commands()[3].Action.Type != behavior.ReturnIdle {
+		t.Fatalf("commands = %#v", driver.Commands())
+	}
+	if got := audit.Snapshot(); len(got.Events) != 3 || got.Events[2].Kind != event.ResponseWindowExpired || len(got.Outcomes) != 1 {
+		t.Fatalf("Audit = %#v", got)
+	}
+	if _, ok := engine.NextWakeup(); ok {
+		t.Fatal("completed wakeup remains pending")
+	}
+	duplicate, err := engine.AdvanceAt(context.Background(), wakeup)
+	if err != nil || len(duplicate.Events) != 0 || len(duplicate.Outcomes) != 0 || len(driver.Commands()) != 4 {
+		t.Fatalf("AdvanceAt(duplicate) = %#v, %v", duplicate, err)
+	}
+}
+
+func TestAdvanceAtCancelledContextHasNoSideEffects(t *testing.T) {
+	engine, clock, driver, audit := newTestEngineWithCooldown(t, 30*time.Minute)
+	processOK(t, engine, presenceObservation("left", 1, clock.Now(), false))
+	clock.Advance(45 * time.Minute)
+	processOK(t, engine, presenceObservation("returned", 2, clock.Now(), true))
+	wakeup, _ := engine.NextWakeup()
+	clock.Advance(8 * time.Second)
+	beforeState, beforeAudit := engine.Snapshot(), audit.Snapshot()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := engine.AdvanceAt(ctx, wakeup); err == nil {
+		t.Fatal("AdvanceAt(cancelled) error = nil")
+	}
+	if engine.Snapshot() != beforeState || !reflect.DeepEqual(audit.Snapshot(), beforeAudit) || len(driver.Commands()) != 3 {
+		t.Fatal("cancelled wakeup changed state, audit, or actions")
+	}
+	if got, ok := engine.NextWakeup(); !ok || got != wakeup {
+		t.Fatalf("NextWakeup() = %#v, %t", got, ok)
+	}
+}
+
 func newTestEngine(t *testing.T) (*Engine, *engineclock.Fake, *fakeembodiment.Driver) {
 	t.Helper()
 	engine, clock, driver, _ := newTestEngineWithCooldown(t, 30*time.Minute)
@@ -291,6 +408,7 @@ func newTestEngineWithDurations(t *testing.T, cooldown, returnThreshold time.Dur
 		SubjectID:              "user-1",
 		ReturnAbsenceThreshold: returnThreshold,
 		RejectionCooldown:      cooldown,
+		NoResponseCooldown:     5 * time.Minute,
 		ActionTimeout:          time.Second,
 		ExternalCallTimeout:    time.Second,
 		PolicyVersion:          "policy.v1",
@@ -302,6 +420,28 @@ func newTestEngineWithDurations(t *testing.T, cooldown, returnThreshold time.Dur
 		t.Fatalf("New() error = %v", err)
 	}
 	return engine, clock, driver, audit
+}
+
+func validTestConfig() Config {
+	return Config{
+		SubjectID:              "user-1",
+		ReturnAbsenceThreshold: 30 * time.Minute,
+		RejectionCooldown:      30 * time.Minute,
+		NoResponseCooldown:     5 * time.Minute,
+		ActionTimeout:          time.Second,
+		ExternalCallTimeout:    time.Second,
+		PolicyVersion:          "policy.v1",
+		BehaviorVersion:        "welcome.v1",
+		ConfigHash:             "config.test.v1",
+		RandomSeed:             1,
+	}
+}
+
+func rejectionControl(id string, at time.Time) control.Command {
+	return control.Command{
+		ID: id, Kind: control.StopAll, Reason: control.ReasonUserRejected,
+		SubjectID: "user-1", OccurredAt: at, TraceID: "trace-" + id,
+	}
 }
 
 func processOK(t *testing.T, engine *Engine, input observation.Observation) Result {

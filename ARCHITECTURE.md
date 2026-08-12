@@ -75,9 +75,13 @@ Observation
 
 控制/拒绝为 P0，取消和动作状态为 P1，语义事件与决策为 P2，日志、记忆和遥测为 P3。所有队列有界；连续状态只保留最新值；控制命令和动作终态不可丢弃。
 
-当前 `internal/runtime/lifecycle.Runner` 使用容量独立的 Observation 与 Control 队列，同时最多执行一个 Observation，以保持 `WorldState` 单写者。显式 `USER_REJECTED` 分两阶段执行：P0 阶段先取消当前处理上下文并立即通过 `ActionDriver.StopAll` 请求载体停止可中断动作；Runner 等活动处理 Goroutine 退出后，再串行提交拒绝事实、终止匹配的 InteractionEpisode、记录 `REJECTED` Outcome 并进入当前用户的冷却期。`StopAll` 失败不丢弃拒绝事实，`SHUTDOWN` 不生成拒绝。该软件取消链路不替代物理急停。
+当前 `internal/runtime/lifecycle.Runner` 使用容量独立的 Observation 与 Control 队列，同时最多执行一个 Observation 或 Wakeup work，以保持 `WorldState` 单写者。显式 `USER_REJECTED` 分两阶段执行：P0 阶段先取消当前处理上下文并立即通过 `ActionDriver.StopAll` 请求载体停止可中断动作；Runner 等活动处理 Goroutine 退出后，再串行提交拒绝事实、终止匹配的 InteractionEpisode、记录 `REJECTED` Outcome 并进入当前用户的冷却期。`StopAll` 失败不丢弃拒绝事实，`SHUTDOWN` 不生成拒绝。该软件取消链路不替代物理急停。
 
 显式拒绝冷却默认 30 分钟、仅作用于当前用户，并保持配置化。硬守卫按事件时间在半开区间 `[rejected_at, cooldown_until)` 内返回 `SILENT/RECENT_REJECTION`，截止时刻恢复。`WorldState` 与 Episode Tracker 只允许在上述串行提交阶段修改。
+
+Application Engine 持有当前专用 continuation，并只向 Runner 暴露不透明的 `Wakeup{Token, Deadline}`。Runner 同时最多维护一个 timer 和一个 active work；active work 可以是 Observation 或到期推进，但 Runner 不解释 `WaitEvent`、用户回复、Episode 或 Outcome。空闲调度严格按 P0 Control、已排队 Observation、到期 Wakeup 的顺序检查；P0 对任意 active work 都执行 cancel、立即 `StopAll`、join，之后才提交拒绝。每次 work 或控制提交后 Runner 重新读取 Wakeup 并停止旧 timer，active work 期间不并发执行 timer work。
+
+当前欢迎行为计划中的 `WaitEvent(user.reply, 8s)` 决定响应窗口时长；8 秒来自行为计划，不是 Engine 全局配置。窗口采用 `[opened_at, deadline)`：截止时刻及之后的精确 Wakeup 生成 occurred_at 等于 deadline 的 `RESPONSE_WINDOW_EXPIRED`，结束 Episode 为 `NO_RESPONSE/RESPONSE_WINDOW_ELAPSED`，进入当前用户默认 5 分钟且可配置的独立冷却，再按实际下发时钟执行 `RETURN_IDLE`。显式拒绝优先于 Observation 和到期推进。到期 Event、Outcome、冷却与 pending 清理先于审计和后续动作；审计失败仅降级为 warning，`RETURN_IDLE` 失败也不回滚已提交事实。
 
 模型调用必须有 deadline、cancel、max concurrency、budget、circuit breaker 和本地 fallback。数据库失败进入无持久化模式；模型失败使用本地模板；载体断开取消当前计划；用户拒绝立即取消可中断行为。
 
@@ -98,12 +102,15 @@ Observation
 -> Fake ActionDriver 执行并记录状态
 ```
 
-已完成两个反馈子闭环：
+已完成三个反馈子闭环：
 
 - 显式拒绝 -> P0 停止 -> `REJECTED` Outcome -> 冷却硬守卫；
-- 适配器确认的 `UserReply` -> `USER_REPLIED` -> `ACCEPTED` Outcome -> 执行 `user.reply` 等待点后的动作。
+- 适配器确认的 `UserReply` -> `USER_REPLIED` -> `ACCEPTED` Outcome -> 执行 `user.reply` 等待点后的动作；
+- 响应窗口到期 -> `RESPONSE_WINDOW_EXPIRED` -> `NO_RESPONSE` Outcome -> 独立冷却 -> `RETURN_IDLE`。
 
-当前只支持根 Sequence 中唯一的 `WaitEvent(user.reply)` 专用 continuation，由 Application Engine 持有；Runner 不解释行为树或 Episode 语义。响应窗口采用半开区间 `[opened_at, deadline)`，回复后动作的 deadline 在实际下发时生成。通用 `WaitEvent`、确定性超时调度和 `NO_RESPONSE` Outcome 尚未完成。
+当前只支持根 Sequence 中唯一的 `WaitEvent(user.reply)` 专用 continuation，由 Application Engine 持有；Runner 仅调度不透明 Wakeup，不解释行为树或 Episode 语义。回复后动作的 deadline 在实际下发时生成。通用 `WaitEvent`、行为树 cursor 和工作流执行器仍未实现。
+
+Stage B 无硬件产品雏形已可通过 Fake Embodiment、Fake Clock、内存审计和五条模拟场景执行。Stage C 的 PC 摄像头、VAD、avatar 与 TTS 均属于尚未实现的外部适配器。
 
 暂不引入 Kafka、Kubernetes、微服务拆分、动态插件、万能事件总线、完整 Event Sourcing、工作流平台、向量数据库实时依赖、LLM 总控制器或 ROS 领域类型。
 

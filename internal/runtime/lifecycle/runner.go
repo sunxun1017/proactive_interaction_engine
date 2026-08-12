@@ -8,6 +8,7 @@ import (
 	"time"
 
 	application "proactive-interaction-engine/internal/application/engine"
+	"proactive-interaction-engine/internal/application/port"
 	"proactive-interaction-engine/internal/domain/control"
 	"proactive-interaction-engine/internal/domain/fault"
 	"proactive-interaction-engine/internal/domain/observation"
@@ -18,6 +19,8 @@ type Processor interface {
 	Process(context.Context, observation.Observation) (application.Result, error)
 	StopAll(context.Context, control.Command) error
 	CommitUserRejection(context.Context, control.Command) error
+	NextWakeup() (application.Wakeup, bool)
+	AdvanceAt(context.Context, application.Wakeup) (application.Result, error)
 }
 
 type Config struct {
@@ -47,10 +50,10 @@ func (c Config) Validate() error {
 type observationRequest struct {
 	ctx      context.Context
 	input    observation.Observation
-	response chan observationResponse
+	response chan workResult
 }
 
-type observationResponse struct {
+type workResult struct {
 	result application.Result
 	err    error
 }
@@ -60,10 +63,16 @@ type controlRequest struct {
 	response chan error
 }
 
-type activeObservation struct {
-	request   observationRequest
+type activeWork struct {
 	cancel    context.CancelFunc
-	completed <-chan observationResponse
+	completed <-chan workResult
+	finish    func(workResult) error
+}
+
+type scheduledWakeup struct {
+	wakeup application.Wakeup
+	timer  port.Timer
+	due    bool
 }
 
 // Runner processes one observation at a time while accepting P0 controls on a
@@ -71,6 +80,7 @@ type activeObservation struct {
 type Runner struct {
 	config       Config
 	processor    Processor
+	clock        port.Clock
 	observations chan observationRequest
 	controls     chan controlRequest
 	done         chan struct{}
@@ -79,16 +89,17 @@ type Runner struct {
 	started bool
 }
 
-func New(config Config, processor Processor) (*Runner, error) {
+func New(config Config, processor Processor, clock port.Clock) (*Runner, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("validate lifecycle config: %w", err)
 	}
-	if processor == nil {
-		return nil, errors.New("processor is required")
+	if processor == nil || clock == nil {
+		return nil, errors.New("processor and clock are required")
 	}
 	return &Runner{
 		config:       config,
 		processor:    processor,
+		clock:        clock,
 		observations: make(chan observationRequest, config.ObservationCapacity),
 		controls:     make(chan controlRequest, config.ControlCapacity),
 		done:         make(chan struct{}),
@@ -104,7 +115,7 @@ func (r *Runner) SubmitObservation(ctx context.Context, input observation.Observ
 	request := observationRequest{
 		ctx:      ctx,
 		input:    input,
-		response: make(chan observationResponse, 1),
+		response: make(chan workResult, 1),
 	}
 	select {
 	case r.observations <- request:
@@ -162,45 +173,88 @@ func (r *Runner) SubmitControl(ctx context.Context, command control.Command) err
 	}
 }
 
-// Run owns every observation-processing goroutine it starts and joins the
-// active one before returning.
+// Run owns every work goroutine it starts and joins the active one before
+// returning.
 func (r *Runner) Run(ctx context.Context) error {
 	if !r.markStarted() {
 		return fault.New(fault.InvalidInput, "run lifecycle", errors.New("runner may only run once"))
 	}
 	defer close(r.done)
 
-	var active *activeObservation
+	var active *activeWork
+	scheduled := r.refreshWakeup(nil)
+	handlePriorityControl := func(request controlRequest) error {
+		var workErr error
+		active, workErr = r.handleControl(ctx, active, request)
+		scheduled = r.refreshWakeup(scheduled)
+		return workErr
+	}
+	shutdownAfterWorkError := func(workErr error) error {
+		r.stopScheduled(scheduled)
+		return r.shutdown(nil, workErr)
+	}
 	for {
-		// Mirror the engine's P0 priority rule before entering a blocking select.
+		// P0 must be observed before either an idle dispatch or a concurrently
+		// completed work result. Go select does not otherwise preserve priority.
 		select {
 		case request := <-r.controls:
-			active = r.handleControl(ctx, active, request)
+			if workErr := handlePriorityControl(request); workErr != nil {
+				return shutdownAfterWorkError(workErr)
+			}
 			continue
 		default:
 		}
 
 		if active == nil {
 			select {
-			case <-ctx.Done():
-				return r.shutdown(nil, ctx.Err())
-			case request := <-r.controls:
-				active = r.handleControl(ctx, nil, request)
 			case request := <-r.observations:
 				active = r.startObservation(request)
+				continue
+			default:
+			}
+			if scheduled != nil && scheduled.due {
+				active = r.startWakeup(ctx, scheduled.wakeup)
+				scheduled = nil
+				continue
+			}
+
+			var timerC <-chan time.Time
+			if scheduled != nil && scheduled.timer != nil {
+				timerC = scheduled.timer.C()
+			}
+			select {
+			case <-ctx.Done():
+				r.stopScheduled(scheduled)
+				return r.shutdown(nil, ctx.Err())
+			case request := <-r.controls:
+				if workErr := handlePriorityControl(request); workErr != nil {
+					return shutdownAfterWorkError(workErr)
+				}
+			case request := <-r.observations:
+				active = r.startObservation(request)
+			case <-timerC:
+				scheduled.timer = nil
+				scheduled.due = true
 			}
 			continue
 		}
 
 		select {
 		case <-ctx.Done():
+			r.stopScheduled(scheduled)
 			return r.shutdown(active, ctx.Err())
 		case request := <-r.controls:
-			active = r.handleControl(ctx, active, request)
+			if workErr := handlePriorityControl(request); workErr != nil {
+				return shutdownAfterWorkError(workErr)
+			}
 		case response := <-active.completed:
 			active.cancel()
-			active.request.response <- response
+			workErr := active.finish(response)
 			active = nil
+			scheduled = r.refreshWakeup(scheduled)
+			if workErr != nil {
+				return shutdownAfterWorkError(workErr)
+			}
 		}
 	}
 }
@@ -215,21 +269,47 @@ func (r *Runner) markStarted() bool {
 	return true
 }
 
-func (r *Runner) startObservation(request observationRequest) *activeObservation {
+func (r *Runner) startObservation(request observationRequest) *activeWork {
 	if err := request.ctx.Err(); err != nil {
-		request.response <- observationResponse{err: err}
+		request.response <- workResult{err: err}
 		return nil
 	}
 	processCtx, cancel := context.WithCancel(request.ctx)
-	completed := make(chan observationResponse, 1)
+	completed := make(chan workResult, 1)
 	go func() {
 		result, err := r.processor.Process(processCtx, request.input)
-		completed <- observationResponse{result: result, err: err}
+		completed <- workResult{result: result, err: err}
 	}()
-	return &activeObservation{request: request, cancel: cancel, completed: completed}
+	return &activeWork{
+		cancel:    cancel,
+		completed: completed,
+		finish: func(result workResult) error {
+			request.response <- result
+			return nil
+		},
+	}
 }
 
-func (r *Runner) handleControl(ctx context.Context, active *activeObservation, request controlRequest) *activeObservation {
+func (r *Runner) startWakeup(ctx context.Context, wakeup application.Wakeup) *activeWork {
+	workCtx, cancel := context.WithCancel(ctx)
+	completed := make(chan workResult, 1)
+	go func() {
+		result, err := r.processor.AdvanceAt(workCtx, wakeup)
+		completed <- workResult{result: result, err: err}
+	}()
+	return &activeWork{
+		cancel:    cancel,
+		completed: completed,
+		finish: func(result workResult) error {
+			if result.err == nil || errors.Is(result.err, context.Canceled) {
+				return nil
+			}
+			return fmt.Errorf("advance wakeup %s: %w", wakeup.Token, result.err)
+		},
+	}
+}
+
+func (r *Runner) handleControl(ctx context.Context, active *activeWork, request controlRequest) (*activeWork, error) {
 	if active != nil {
 		active.cancel()
 	}
@@ -237,9 +317,10 @@ func (r *Runner) handleControl(ctx context.Context, active *activeObservation, r
 	stopErr := r.processor.StopAll(stopCtx, request.command)
 	cancel()
 
+	var workErr error
 	if active != nil {
 		response := <-active.completed
-		active.request.response <- response
+		workErr = active.finish(response)
 		active = nil
 	}
 
@@ -248,10 +329,32 @@ func (r *Runner) handleControl(ctx context.Context, active *activeObservation, r
 		commitErr = r.processor.CommitUserRejection(ctx, request.command)
 	}
 	request.response <- errors.Join(stopErr, commitErr)
-	return active
+	return active, workErr
 }
 
-func (r *Runner) shutdown(active *activeObservation, cause error) error {
+func (r *Runner) refreshWakeup(current *scheduledWakeup) *scheduledWakeup {
+	r.stopScheduled(current)
+	wakeup, ok := r.processor.NextWakeup()
+	if !ok {
+		return nil
+	}
+	now := r.clock.Now()
+	if !wakeup.Deadline.After(now) {
+		return &scheduledWakeup{wakeup: wakeup, due: true}
+	}
+	return &scheduledWakeup{
+		wakeup: wakeup,
+		timer:  r.clock.NewTimer(wakeup.Deadline.Sub(now)),
+	}
+}
+
+func (r *Runner) stopScheduled(scheduled *scheduledWakeup) {
+	if scheduled != nil && scheduled.timer != nil {
+		scheduled.timer.Stop()
+	}
+}
+
+func (r *Runner) shutdown(active *activeWork, cause error) error {
 	if active != nil {
 		active.cancel()
 	}
@@ -266,7 +369,7 @@ func (r *Runner) shutdown(active *activeObservation, cause error) error {
 
 	if active != nil {
 		response := <-active.completed
-		active.request.response <- response
+		_ = active.finish(response)
 	}
 	r.rejectQueued(cause)
 	if stopErr != nil {
@@ -279,7 +382,7 @@ func (r *Runner) rejectQueued(cause error) {
 	for {
 		select {
 		case request := <-r.observations:
-			request.response <- observationResponse{err: cause}
+			request.response <- workResult{err: cause}
 		default:
 			r.rejectQueuedControls(cause)
 			return

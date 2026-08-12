@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"proactive-interaction-engine/internal/application/port"
 	"proactive-interaction-engine/internal/domain/behavior"
@@ -40,10 +41,19 @@ type Result struct {
 	Warnings       []string
 }
 
+// Wakeup is an application-owned, business-opaque deadline token. Engine and
+// its caller preserve the same single-writer ordering used by Process.
+type Wakeup struct {
+	Token    string
+	Deadline time.Time
+}
+
 type pendingReplyContinuation struct {
 	episodeID     string
 	interactionID string
 	subjectID     string
+	traceID       string
+	wakeup        Wakeup
 	after         behavior.ActionPhase
 }
 
@@ -159,15 +169,85 @@ func (e *Engine) Process(ctx context.Context, input observation.Observation) (Re
 			return result, err
 		}
 		openedAt := e.clock.Now()
-		if err := e.episodes.OpenResponseWindow(episodeID, openedAt, phases.WaitFor); err != nil {
+		wakeup := Wakeup{
+			Token:    "wakeup:" + episodeID + ":user.reply",
+			Deadline: openedAt.Add(phases.WaitFor),
+		}
+		if err := e.episodes.OpenResponseWindow(episodeID, wakeup.Token, openedAt, phases.WaitFor); err != nil {
 			return result, fmt.Errorf("open reply window for episode %s: %w", episodeID, err)
 		}
 		e.pendingReply = &pendingReplyContinuation{
 			episodeID:     episodeID,
 			interactionID: outcome.InteractionID,
 			subjectID:     semanticEvent.SubjectID,
+			traceID:       outcome.TraceID,
+			wakeup:        wakeup,
 			after:         phases.After,
 		}
+	}
+	return result, nil
+}
+
+// NextWakeup returns the current application deadline without exposing its
+// reply-window semantics to the runtime scheduler.
+func (e *Engine) NextWakeup() (Wakeup, bool) {
+	if e.pendingReply == nil {
+		return Wakeup{}, false
+	}
+	return e.pendingReply.wakeup, true
+}
+
+// AdvanceAt consumes the exact current wakeup after its deadline. It follows
+// the same single-writer convention as Process and CommitUserRejection.
+func (e *Engine) AdvanceAt(ctx context.Context, wakeup Wakeup) (Result, error) {
+	if err := ctx.Err(); err != nil {
+		return Result{}, classifyContext("advance wakeup", err)
+	}
+	pending := e.pendingReply
+	if pending == nil || pending.wakeup != wakeup || e.clock.Now().Before(wakeup.Deadline) {
+		return Result{}, nil
+	}
+
+	expired, err := event.NewResponseWindowExpired(
+		"evt:"+wakeup.Token+":"+string(event.ResponseWindowExpired),
+		pending.episodeID,
+		wakeup.Token,
+		pending.subjectID,
+		wakeup.Deadline,
+		pending.traceID,
+	)
+	if err != nil {
+		return Result{}, fmt.Errorf("construct response window expiration: %w", err)
+	}
+	outcome, applied, err := e.episodes.Expire(pending.episodeID, expired)
+	if err != nil {
+		return Result{}, fmt.Errorf("expire response window for episode %s: %w", pending.episodeID, err)
+	}
+	if !applied {
+		return Result{}, nil
+	}
+	if outcome == nil {
+		return Result{}, errors.New("expire response window returned no outcome")
+	}
+	if _, err := e.projector.ApplyNoResponse(expired, e.config.NoResponseCooldown); err != nil {
+		return Result{}, fmt.Errorf("project response window expiration %s: %w", expired.ID, err)
+	}
+	e.pendingReply = nil
+
+	result := Result{
+		Events:   []event.SemanticEvent{expired},
+		Outcomes: []episode.Outcome{*outcome},
+	}
+	e.bestEffortAudit(&result, func(auditCtx context.Context) error {
+		return e.recorder.RecordEvent(auditCtx, expired)
+	})
+	e.bestEffortAudit(&result, func(auditCtx context.Context) error {
+		return e.recorder.RecordOutcome(auditCtx, *outcome)
+	})
+	statuses, err := e.dispatchCommands(ctx, pending.after.Commands(e.clock.Now()))
+	result.ActionStatuses = append(result.ActionStatuses, statuses...)
+	if err != nil {
+		return result, fmt.Errorf("dispatch expired reply continuation %s: %w", pending.interactionID, err)
 	}
 	return result, nil
 }

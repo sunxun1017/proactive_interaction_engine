@@ -53,6 +53,9 @@ After the user answers, capture every reusable decision before completing the ta
 - Emit only capability-supported abstract actions. Hardware adapters retain the right to reject commands.
 - Treat software `StopAll` as cancellation, not as a physical emergency stop.
 - Treat explicit user rejection as P0: cancel and dispatch `StopAll` immediately, join the active processing path, then commit the rejection event, rejected Outcome, and subject-local cooldown through the single writer. Use a configurable 30-minute cooldown by default. A stop-adapter failure must not erase the rejection fact.
+- Treat the current plan's `WaitEvent(user.reply, 8s)` as a specialized application-owned response window, not a global Engine timeout or a generic workflow. Accept replies only in `[opened_at, deadline)`; at the exact deadline produce `RESPONSE_WINDOW_EXPIRED` and `NO_RESPONSE/RESPONSE_WINDOW_ELAPSED`, then apply the configurable, subject-local no-response cooldown, which defaults to 5 minutes.
+- Expose response deadlines to runtime only as opaque `Wakeup{Token, Deadline}` values. Runner owns at most one timer and one active work, never interprets reply, behavior, Episode, or Outcome semantics, and dispatches P0 control before queued observations and wakeups. Explicit rejection wins over timeout processing.
+- Commit expiration Event, Outcome, cooldown, and pending-continuation removal before auditing or dispatching `RETURN_IDLE`. Audit failures are warnings and post-wait action failures never roll back those facts.
 - Preserve action IDs, deadlines, interaction IDs, preemption policy, capability requirements, and idempotency semantics.
 
 Reject first-phase additions of Kafka, Kubernetes, microservice decomposition, a universal pub/sub bus, full event sourcing, a workflow platform, a vector database on the real-time path, or an LLM controller unless the user explicitly revises scope with an ADR.

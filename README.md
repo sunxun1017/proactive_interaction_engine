@@ -11,7 +11,8 @@
 - 单写者 Runner、有界 Observation/Control 队列和 P0 `StopAll` 抢占
 - 显式用户拒绝的 `REJECTED` Outcome、30 分钟单用户冷却与确定性硬守卫
 - 由输入适配器确认的 `UserReply`、`ACCEPTED` Outcome 与回复后行为续接
-- 欢迎、用户回复与保持静默模拟场景
+- 响应窗口到期后的 `NO_RESPONSE` Outcome、5 分钟单用户冷却与自动 `RETURN_IDLE`
+- 欢迎、保持静默、用户回复、显式拒绝和无响应五条模拟场景
 - Protobuf 外部契约、行为与配置样例、架构依赖测试
 - 仓库级 Agent Skill 与 Git/CI 约束
 
@@ -24,11 +25,15 @@ make test
 go run ./cmd/simulator
 go run ./cmd/simulator -busy
 go run ./cmd/simulator -reply
+go run ./cmd/simulator -reject
+go run ./cmd/simulator -timeout
 ```
 
 正常场景会生成 `GREET_SHORT` 与抽象动作；`-busy` 场景会生成带 `USER_ON_CALL` 原因的 `SILENT`，且不下发动作。
 
-`-reply` 使用 Fake Clock 演示用户在响应窗口内回复后记录 `ACCEPTED` 并执行 `RETURN_IDLE`。当前仅支持专用 `WaitEvent(user.reply)` continuation；通用等待执行器、自动超时和 `NO_RESPONSE` 仍是下一阶段能力。
+`-reply` 使用 Fake Clock 演示用户在响应窗口内回复后记录 `ACCEPTED`；`-reject` 演示 `StopAll`、`REJECTED` 与 30 分钟冷却（P0 抢占顺序由 Runner 集成测试验证）；`-timeout` 精确推进到响应截止时刻，记录 `NO_RESPONSE`、进入 5 分钟冷却并执行 `RETURN_IDLE`。
+
+Stage B 的无硬件产品雏形已完成：上述五条路径均可通过 Fake Embodiment、Fake Clock 和内存审计在本机执行。Stage C 的 PC 摄像头输入、VAD、avatar 和 TTS 适配器尚未实现；当前模拟器不伪装这些外部能力。核心目前仍只支持欢迎计划中专用的 `WaitEvent(user.reply)` continuation，不是通用工作流执行器。
 
 ## 目录
 

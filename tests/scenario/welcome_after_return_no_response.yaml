@@ -1,0 +1,23 @@
+name: welcome_after_return_no_response
+timeline:
+  - at: 0s
+    observation: person_presence
+    present: false
+  - at: 45m
+    observation: person_presence
+    present: true
+  - at: 45m8s
+    event: response_window_expired
+expect:
+  decisions:
+    - GREET_SHORT
+  outcomes:
+    - NO_RESPONSE
+  outcome_reasons:
+    - RESPONSE_WINDOW_ELAPSED
+  no_response_cooldown: 5m
+  actions:
+    - ATTEND_USER
+    - ACKNOWLEDGE
+    - SPEAK
+    - RETURN_IDLE

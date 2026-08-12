@@ -9,6 +9,7 @@ type Config struct {
 	SubjectID              string
 	ReturnAbsenceThreshold time.Duration
 	RejectionCooldown      time.Duration
+	NoResponseCooldown     time.Duration
 	ActionTimeout          time.Duration
 	ExternalCallTimeout    time.Duration
 	PolicyVersion          string
@@ -26,6 +27,9 @@ func (c Config) Validate() error {
 	}
 	if c.RejectionCooldown <= 0 {
 		return errors.New("rejection cooldown must be positive")
+	}
+	if c.NoResponseCooldown <= 0 {
+		return errors.New("no-response cooldown must be positive")
 	}
 	if c.ActionTimeout <= 0 || c.ExternalCallTimeout <= 0 {
 		return errors.New("action and external call timeouts must be positive")

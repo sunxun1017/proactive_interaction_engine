@@ -183,15 +183,17 @@ func TestTrackerOpenResponseWindowValidatesOwnershipAndTiming(t *testing.T) {
 		name       string
 		withActive bool
 		episodeID  string
+		token      string
 		openedAt   time.Time
 		duration   time.Duration
 		code       fault.Code
 	}{
-		{name: "no active episode", episodeID: "episode-1", openedAt: startedAt, duration: time.Second, code: fault.PolicyBlocked},
-		{name: "wrong episode", withActive: true, episodeID: "episode-other", openedAt: startedAt, duration: time.Second, code: fault.InvalidInput},
-		{name: "zero duration", withActive: true, episodeID: "episode-1", openedAt: startedAt, code: fault.InvalidInput},
-		{name: "negative duration", withActive: true, episodeID: "episode-1", openedAt: startedAt, duration: -time.Second, code: fault.InvalidInput},
-		{name: "before episode", withActive: true, episodeID: "episode-1", openedAt: startedAt.Add(-time.Nanosecond), duration: time.Second, code: fault.InvalidInput},
+		{name: "no active episode", episodeID: "episode-1", token: "wakeup-1", openedAt: startedAt, duration: time.Second, code: fault.PolicyBlocked},
+		{name: "wrong episode", withActive: true, episodeID: "episode-other", token: "wakeup-1", openedAt: startedAt, duration: time.Second, code: fault.InvalidInput},
+		{name: "missing token", withActive: true, episodeID: "episode-1", openedAt: startedAt, duration: time.Second, code: fault.InvalidInput},
+		{name: "zero duration", withActive: true, episodeID: "episode-1", token: "wakeup-1", openedAt: startedAt, code: fault.InvalidInput},
+		{name: "negative duration", withActive: true, episodeID: "episode-1", token: "wakeup-1", openedAt: startedAt, duration: -time.Second, code: fault.InvalidInput},
+		{name: "before episode", withActive: true, episodeID: "episode-1", token: "wakeup-1", openedAt: startedAt.Add(-time.Nanosecond), duration: time.Second, code: fault.InvalidInput},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -199,7 +201,7 @@ func TestTrackerOpenResponseWindowValidatesOwnershipAndTiming(t *testing.T) {
 			if test.withActive {
 				tracker = trackerWithEpisode(t, startedAt)
 			}
-			err := tracker.OpenResponseWindow(test.episodeID, test.openedAt, test.duration)
+			err := tracker.OpenResponseWindow(test.episodeID, test.token, test.openedAt, test.duration)
 			if !fault.IsCode(err, test.code) {
 				t.Fatalf("OpenResponseWindow() error = %v, want %s", err, test.code)
 			}
@@ -210,13 +212,13 @@ func TestTrackerOpenResponseWindowValidatesOwnershipAndTiming(t *testing.T) {
 func TestTrackerOpenResponseWindowIsIdempotentButDoesNotReplaceWindow(t *testing.T) {
 	openedAt := time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC)
 	tracker := trackerWithEpisode(t, openedAt.Add(-time.Second))
-	if err := tracker.OpenResponseWindow("episode-1", openedAt, 8*time.Second); err != nil {
+	if err := tracker.OpenResponseWindow("episode-1", "wakeup-1", openedAt, 8*time.Second); err != nil {
 		t.Fatalf("OpenResponseWindow() error = %v", err)
 	}
-	if err := tracker.OpenResponseWindow("episode-1", openedAt, 8*time.Second); err != nil {
+	if err := tracker.OpenResponseWindow("episode-1", "wakeup-1", openedAt, 8*time.Second); err != nil {
 		t.Fatalf("OpenResponseWindow(same) error = %v", err)
 	}
-	if err := tracker.OpenResponseWindow("episode-1", openedAt, 9*time.Second); !fault.IsCode(err, fault.PolicyBlocked) {
+	if err := tracker.OpenResponseWindow("episode-1", "wakeup-1", openedAt, 9*time.Second); !fault.IsCode(err, fault.PolicyBlocked) {
 		t.Fatalf("OpenResponseWindow(replacement) error = %v, want PolicyBlocked", err)
 	}
 }
@@ -261,7 +263,7 @@ func TestTrackerExplicitRejectionEndsEpisodeBeforeOrAfterWindowOpens(t *testing.
 		t.Run(map[bool]string{false: "before window", true: "after window"}[openWindow], func(t *testing.T) {
 			tracker := trackerWithEpisode(t, startedAt)
 			if openWindow {
-				if err := tracker.OpenResponseWindow("episode-1", startedAt.Add(time.Second), 8*time.Second); err != nil {
+				if err := tracker.OpenResponseWindow("episode-1", "wakeup-1", startedAt.Add(time.Second), 8*time.Second); err != nil {
 					t.Fatalf("OpenResponseWindow() error = %v", err)
 				}
 			}
@@ -273,13 +275,82 @@ func TestTrackerExplicitRejectionEndsEpisodeBeforeOrAfterWindowOpens(t *testing.
 	}
 }
 
+func TestTrackerExpiresResponseWindowAtOrAfterDeadline(t *testing.T) {
+	openedAt := time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC)
+	tracker := trackerWithOpenWindow(t, openedAt)
+	before := responseExpiredEvent(t, "expiry", "episode-1", "wakeup-1", "user-1", openedAt.Add(8*time.Second-time.Nanosecond))
+	got, applied, err := tracker.Expire("episode-1", before)
+	if err != nil || applied || got != nil {
+		t.Fatalf("Expire(before deadline) = (%#v, %t), %v", got, applied, err)
+	}
+
+	atDeadline := responseExpiredEvent(t, "expiry", "episode-1", "wakeup-1", "user-1", openedAt.Add(8*time.Second))
+	got, applied, err = tracker.Expire("episode-1", atDeadline)
+	if err != nil || !applied || got == nil || got.Kind != NoResponse || got.Reason != ReasonResponseWindowElapsed {
+		t.Fatalf("Expire(deadline) = (%#v, %t), %v", got, applied, err)
+	}
+	if got.TriggerEventID != "event-1" || got.FeedbackEventID != atDeadline.ID || got.TraceID != "trace-1" || got.FeedbackTraceID != atDeadline.TraceID {
+		t.Fatalf("NO_RESPONSE correlation = %#v", got)
+	}
+
+	duplicate, applied, err := tracker.Expire("episode-1", atDeadline)
+	if err != nil || applied || duplicate != nil {
+		t.Fatalf("Expire(duplicate) = (%#v, %t), %v", duplicate, applied, err)
+	}
+	collision := atDeadline
+	collision.WakeupToken = "wakeup-other"
+	if _, applied, err := tracker.Expire("episode-1", collision); !fault.IsCode(err, fault.InvalidInput) || applied {
+		t.Fatalf("Expire(collision) = applied %t, error %v; want InvalidInput", applied, err)
+	}
+}
+
+func TestTrackerExpireRejectsWrongCorrelationWithoutEndingEpisode(t *testing.T) {
+	openedAt := time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		expectedID string
+		episodeID  string
+		token      string
+		subjectID  string
+	}{
+		{name: "empty expected", episodeID: "episode-1", token: "wakeup-1", subjectID: "user-1"},
+		{name: "wrong expected", expectedID: "episode-other", episodeID: "episode-1", token: "wakeup-1", subjectID: "user-1"},
+		{name: "wrong event episode", expectedID: "episode-1", episodeID: "episode-other", token: "wakeup-1", subjectID: "user-1"},
+		{name: "wrong token", expectedID: "episode-1", episodeID: "episode-1", token: "wakeup-other", subjectID: "user-1"},
+		{name: "wrong subject", expectedID: "episode-1", episodeID: "episode-1", token: "wakeup-1", subjectID: "user-2"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tracker := trackerWithOpenWindow(t, openedAt)
+			input := responseExpiredEvent(t, "invalid", test.episodeID, test.token, test.subjectID, openedAt.Add(8*time.Second))
+			if _, applied, err := tracker.Expire(test.expectedID, input); err == nil || applied {
+				t.Fatalf("Expire(invalid) = applied %t, error %v", applied, err)
+			}
+			valid := responseExpiredEvent(t, "valid", "episode-1", "wakeup-1", "user-1", openedAt.Add(8*time.Second))
+			got, applied, err := tracker.Expire("episode-1", valid)
+			if err != nil || !applied || got == nil || got.Kind != NoResponse {
+				t.Fatalf("Expire(valid) = (%#v, %t), %v", got, applied, err)
+			}
+		})
+	}
+}
+
 func trackerWithOpenWindow(t *testing.T, openedAt time.Time) *Tracker {
 	t.Helper()
 	tracker := trackerWithEpisode(t, openedAt.Add(-time.Second))
-	if err := tracker.OpenResponseWindow("episode-1", openedAt, 8*time.Second); err != nil {
+	if err := tracker.OpenResponseWindow("episode-1", "wakeup-1", openedAt, 8*time.Second); err != nil {
 		t.Fatalf("OpenResponseWindow() error = %v", err)
 	}
 	return tracker
+}
+
+func responseExpiredEvent(t *testing.T, id, episodeID, token, subjectID string, occurredAt time.Time) event.SemanticEvent {
+	t.Helper()
+	result, err := event.NewResponseWindowExpired(id, episodeID, token, subjectID, occurredAt, "trace-"+id)
+	if err != nil {
+		t.Fatalf("NewResponseWindowExpired() error = %v", err)
+	}
+	return result
 }
 
 func trackerWithEpisode(t *testing.T, startedAt time.Time) *Tracker {

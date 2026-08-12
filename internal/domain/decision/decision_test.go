@@ -104,3 +104,41 @@ func TestPolicyIgnoresInvalidRejectionCooldownInterval(t *testing.T) {
 		}
 	}
 }
+
+func TestPolicyNoResponseCooldownIsHalfOpenAndRejectionTakesPriority(t *testing.T) {
+	startedAt := time.Date(2026, time.August, 12, 8, 0, 0, 0, time.UTC)
+	policy := RulePolicy{Version: "policy.v1", BehaviorVersion: "behavior.v1"}
+	for _, test := range []struct {
+		name      string
+		at        time.Time
+		rejection bool
+		kind      Kind
+		reason    ReasonCode
+	}{
+		{name: "inside no response cooldown", at: startedAt.Add(4 * time.Minute), kind: Silent, reason: ReasonRecentNoResponse},
+		{name: "rejection wins overlap", at: startedAt.Add(4 * time.Minute), rejection: true, kind: Silent, reason: ReasonRecentRejection},
+		{name: "deadline allows greeting", at: startedAt.Add(5 * time.Minute), kind: GreetShort},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := state.WorldSnapshot{
+				SubjectID:                   "user-1",
+				PersonPresent:               true,
+				NoResponseCooldownStartedAt: startedAt,
+				NoResponseCooldownUntil:     startedAt.Add(5 * time.Minute),
+			}
+			if test.rejection {
+				snapshot.RejectionCooldownStartedAt = startedAt
+				snapshot.RejectionCooldownUntil = startedAt.Add(30 * time.Minute)
+			}
+			got, err := Evaluate(policy, snapshot, event.SemanticEvent{
+				ID: "evt-returned", Kind: event.PersonReturned, SubjectID: "user-1", OccurredAt: test.at, TraceID: "trace-1",
+			}, "config-test")
+			if err != nil || got == nil || got.Kind != test.kind {
+				t.Fatalf("Evaluate() = %#v, %v", got, err)
+			}
+			if test.reason != "" && (len(got.ReasonCodes) != 1 || got.ReasonCodes[0] != test.reason) {
+				t.Fatalf("ReasonCodes = %#v, want %s", got.ReasonCodes, test.reason)
+			}
+		})
+	}
+}

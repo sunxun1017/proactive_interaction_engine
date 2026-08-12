@@ -13,16 +13,26 @@ import (
 	memorystorage "proactive-interaction-engine/adapters/storage/memory"
 	application "proactive-interaction-engine/internal/application/engine"
 	"proactive-interaction-engine/internal/domain/behavior"
+	"proactive-interaction-engine/internal/domain/control"
 	"proactive-interaction-engine/internal/domain/observation"
+	"proactive-interaction-engine/internal/domain/state"
 	engineclock "proactive-interaction-engine/internal/runtime/clock"
 )
 
 func main() {
 	busy := flag.Bool("busy", false, "mark the user as on a call before returning")
 	reply := flag.Bool("reply", false, "submit an adapter-confirmed user reply after the welcome")
+	reject := flag.Bool("reject", false, "submit an explicit user rejection after the welcome")
+	timeout := flag.Bool("timeout", false, "advance the response window to its deadline")
 	flag.Parse()
-	if *busy && *reply {
-		fail(fmt.Errorf("busy and reply scenarios are mutually exclusive"))
+	selected := 0
+	for _, enabled := range []bool{*busy, *reply, *reject, *timeout} {
+		if enabled {
+			selected++
+		}
+	}
+	if selected > 1 {
+		fail(fmt.Errorf("busy, reply, reject, and timeout scenarios are mutually exclusive"))
 	}
 
 	startedAt := time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC)
@@ -62,22 +72,54 @@ func main() {
 			fail(processErr)
 		}
 		followUp = &value
+	} else if *reject {
+		command := control.Command{
+			ID:         "control-reject",
+			Kind:       control.StopAll,
+			Reason:     control.ReasonUserRejected,
+			SubjectID:  "user-1",
+			OccurredAt: clock.Now(),
+			TraceID:    "trace-simulator-reject",
+		}
+		if stopErr := engine.StopAll(ctx, command); stopErr != nil {
+			fail(stopErr)
+		}
+		if commitErr := engine.CommitUserRejection(ctx, command); commitErr != nil {
+			fail(commitErr)
+		}
+	} else if *timeout {
+		wakeup, ok := engine.NextWakeup()
+		if !ok {
+			fail(fmt.Errorf("timeout scenario has no pending wakeup"))
+		}
+		clock.Advance(wakeup.Deadline.Sub(clock.Now()))
+		value, advanceErr := engine.AdvanceAt(ctx, wakeup)
+		if advanceErr != nil {
+			fail(advanceErr)
+		}
+		followUp = &value
 	}
 	scenario := "welcome_after_return"
 	if *busy {
 		scenario = "returned_while_on_call"
 	} else if *reply {
 		scenario = "welcome_after_return_and_reply"
+	} else if *reject {
+		scenario = "welcome_after_return_and_rejection"
+	} else if *timeout {
+		scenario = "welcome_after_return_no_response"
 	}
 	output := struct {
 		Scenario string                      `json:"scenario"`
 		Result   application.Result          `json:"result"`
 		FollowUp *application.Result         `json:"follow_up,omitempty"`
+		Snapshot state.WorldSnapshot         `json:"snapshot"`
 		Audit    memorystorage.AuditSnapshot `json:"audit"`
 	}{
 		Scenario: scenario,
 		Result:   result,
 		FollowUp: followUp,
+		Snapshot: engine.Snapshot(),
 		Audit:    audit.Snapshot(),
 	}
 	encoded, err := json.MarshalIndent(output, "", "  ")
@@ -92,6 +134,7 @@ func defaultConfig() application.Config {
 		SubjectID:              "user-1",
 		ReturnAbsenceThreshold: 30 * time.Minute,
 		RejectionCooldown:      30 * time.Minute,
+		NoResponseCooldown:     5 * time.Minute,
 		ActionTimeout:          2 * time.Second,
 		ExternalCallTimeout:    time.Second,
 		PolicyVersion:          "policy.v1",

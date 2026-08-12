@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"proactive-interaction-engine/internal/domain/fault"
 	"proactive-interaction-engine/internal/domain/observation"
 )
 
@@ -59,6 +60,28 @@ func TestCompilerEmitsUserRepliedWithObservationCorrelation(t *testing.T) {
 	}
 	if got[0].SourceObservationID != input.ID || got[0].TraceID != input.TraceID || got[0].SubjectID != input.SubjectID || got[0].OccurredAt != at {
 		t.Fatalf("Compile(reply) correlation = %#v", got[0])
+	}
+}
+
+func TestNewResponseWindowExpiredValidatesRequiredCorrelation(t *testing.T) {
+	at := time.Date(2026, time.August, 12, 8, 0, 0, 0, time.UTC)
+	got, err := NewResponseWindowExpired("expiry-1", "episode-1", "wakeup-1", "user-1", at, "trace-1")
+	if err != nil {
+		t.Fatalf("NewResponseWindowExpired() error = %v", err)
+	}
+	if got.Kind != ResponseWindowExpired || got.ResponseEpisodeID != "episode-1" || got.WakeupToken != "wakeup-1" {
+		t.Fatalf("NewResponseWindowExpired() = %#v", got)
+	}
+	for name, input := range map[string]SemanticEvent{
+		"wrong kind":      {ID: "expiry", Kind: PersonReturned, ResponseEpisodeID: "episode", WakeupToken: "token", SubjectID: "user", OccurredAt: at, TraceID: "trace"},
+		"missing episode": {ID: "expiry", Kind: ResponseWindowExpired, WakeupToken: "token", SubjectID: "user", OccurredAt: at, TraceID: "trace"},
+		"missing token":   {ID: "expiry", Kind: ResponseWindowExpired, ResponseEpisodeID: "episode", SubjectID: "user", OccurredAt: at, TraceID: "trace"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := input.ValidateResponseWindowExpired(); !fault.IsCode(err, fault.InvalidInput) {
+				t.Fatalf("ValidateResponseWindowExpired() error = %v, want InvalidInput", err)
+			}
+		})
 	}
 }
 

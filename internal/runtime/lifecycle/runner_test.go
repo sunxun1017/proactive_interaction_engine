@@ -11,6 +11,7 @@ import (
 	"proactive-interaction-engine/internal/domain/control"
 	"proactive-interaction-engine/internal/domain/fault"
 	"proactive-interaction-engine/internal/domain/observation"
+	engineclock "proactive-interaction-engine/internal/runtime/clock"
 )
 
 func TestStopAllCancelsActiveObservation(t *testing.T) {
@@ -19,7 +20,7 @@ func TestStopAllCancelsActiveObservation(t *testing.T) {
 		ObservationCapacity: 2,
 		ControlCapacity:     1,
 		StopTimeout:         time.Second,
-	}, processor)
+	}, processor, newLifecycleClock())
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -77,7 +78,7 @@ func TestStopAllCancelsActiveObservation(t *testing.T) {
 
 func TestUserRejectionJoinsActiveProcessBeforeCommit(t *testing.T) {
 	processor := newOrderedProcessor()
-	runner, err := New(Config{ObservationCapacity: 2, ControlCapacity: 1, StopTimeout: time.Second}, processor)
+	runner, err := New(Config{ObservationCapacity: 2, ControlCapacity: 1, StopTimeout: time.Second}, processor, newLifecycleClock())
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -118,7 +119,7 @@ func TestUserRejectionJoinsActiveProcessBeforeCommit(t *testing.T) {
 
 func TestUserRejectionCommitsBeforeNextObservationStarts(t *testing.T) {
 	processor := newOrderedProcessor()
-	runner, err := New(Config{ObservationCapacity: 2, ControlCapacity: 1, StopTimeout: time.Second}, processor)
+	runner, err := New(Config{ObservationCapacity: 2, ControlCapacity: 1, StopTimeout: time.Second}, processor, newLifecycleClock())
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -150,7 +151,7 @@ func TestUserRejectionCommitsBeforeNextObservationStarts(t *testing.T) {
 func TestStopFailureStillCommitsUserRejection(t *testing.T) {
 	processor := newBlockingProcessor()
 	processor.stopErr = errors.New("adapter disconnected")
-	runner, err := New(Config{ObservationCapacity: 1, ControlCapacity: 1, StopTimeout: time.Second}, processor)
+	runner, err := New(Config{ObservationCapacity: 1, ControlCapacity: 1, StopTimeout: time.Second}, processor, newLifecycleClock())
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -183,7 +184,7 @@ func TestRunnerUsesConfiguredBoundedQueues(t *testing.T) {
 		ObservationCapacity: 7,
 		ControlCapacity:     3,
 		StopTimeout:         time.Second,
-	}, newBlockingProcessor())
+	}, newBlockingProcessor(), newLifecycleClock())
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -201,7 +202,7 @@ func TestShutdownCancelsAndJoinsActiveObservation(t *testing.T) {
 		ObservationCapacity: 1,
 		ControlCapacity:     1,
 		StopTimeout:         time.Second,
-	}, processor)
+	}, processor, newLifecycleClock())
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -255,7 +256,7 @@ func TestShutdownReportsStopFailure(t *testing.T) {
 		ObservationCapacity: 1,
 		ControlCapacity:     1,
 		StopTimeout:         time.Second,
-	}, processor)
+	}, processor, newLifecycleClock())
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -265,6 +266,12 @@ func TestShutdownReportsStopFailure(t *testing.T) {
 	err = runner.Run(ctx)
 	if !fault.IsCode(err, fault.Unavailable) {
 		t.Fatalf("Run() error = %v, want Unavailable", err)
+	}
+}
+
+func TestNewRequiresClock(t *testing.T) {
+	if _, err := New(DefaultConfig(), newBlockingProcessor(), nil); err == nil {
+		t.Fatal("New() error = nil, want missing clock failure")
 	}
 }
 
@@ -308,6 +315,14 @@ func (p *blockingProcessor) CommitUserRejection(ctx context.Context, command con
 	return nil
 }
 
+func (p *blockingProcessor) NextWakeup() (application.Wakeup, bool) {
+	return application.Wakeup{}, false
+}
+
+func (p *blockingProcessor) AdvanceAt(ctx context.Context, _ application.Wakeup) (application.Result, error) {
+	return application.Result{}, ctx.Err()
+}
+
 type orderedProcessor struct {
 	events  chan string
 	release chan struct{}
@@ -342,6 +357,14 @@ func (p *orderedProcessor) CommitUserRejection(ctx context.Context, command cont
 	return nil
 }
 
+func (p *orderedProcessor) NextWakeup() (application.Wakeup, bool) {
+	return application.Wakeup{}, false
+}
+
+func (p *orderedProcessor) AdvanceAt(ctx context.Context, _ application.Wakeup) (application.Result, error) {
+	return application.Result{}, ctx.Err()
+}
+
 func rejectionCommand(id string) control.Command {
 	return control.Command{
 		ID:         id,
@@ -351,6 +374,10 @@ func rejectionCommand(id string) control.Command {
 		OccurredAt: time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC),
 		TraceID:    "trace-" + id,
 	}
+}
+
+func newLifecycleClock() *engineclock.Fake {
+	return engineclock.NewFake(time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC))
 }
 
 func wantEvent(t *testing.T, events <-chan string, want string) {

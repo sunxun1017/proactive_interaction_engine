@@ -11,16 +11,18 @@ import (
 
 // WorldSnapshot is an immutable-by-convention value copy of current state.
 type WorldSnapshot struct {
-	SubjectID                  string
-	Version                    uint64
-	UpdatedAt                  time.Time
-	PersonPresent              bool
-	UserBusy                   bool
-	BusyReason                 observation.BusyReason
-	QuietMode                  bool
-	RejectionCooldownStartedAt time.Time
-	RejectionCooldownUntil     time.Time
-	LastReturnedAt             time.Time
+	SubjectID                   string
+	Version                     uint64
+	UpdatedAt                   time.Time
+	PersonPresent               bool
+	UserBusy                    bool
+	BusyReason                  observation.BusyReason
+	QuietMode                   bool
+	RejectionCooldownStartedAt  time.Time
+	RejectionCooldownUntil      time.Time
+	NoResponseCooldownStartedAt time.Time
+	NoResponseCooldownUntil     time.Time
+	LastReturnedAt              time.Time
 }
 
 // Projector is the single writer for its world snapshot.
@@ -83,6 +85,28 @@ func (p *Projector) ApplyUserRejection(input event.SemanticEvent, cooldown time.
 	}
 	p.snapshot.RejectionCooldownStartedAt = input.OccurredAt
 	p.snapshot.RejectionCooldownUntil = input.OccurredAt.Add(cooldown)
+	p.snapshot.Version++
+	p.snapshot.UpdatedAt = input.OccurredAt
+	return p.snapshot, nil
+}
+
+// ApplyNoResponse projects the independent cooldown caused by an unanswered
+// proactive interaction.
+func (p *Projector) ApplyNoResponse(input event.SemanticEvent, cooldown time.Duration) (WorldSnapshot, error) {
+	if err := input.ValidateResponseWindowExpired(); err != nil {
+		return p.snapshot, err
+	}
+	if cooldown <= 0 {
+		return p.snapshot, fault.New(fault.InvalidInput, "project no response", errors.New("cooldown must be positive"))
+	}
+	if input.SubjectID != p.snapshot.SubjectID {
+		return p.snapshot, nil
+	}
+	if !p.snapshot.NoResponseCooldownStartedAt.IsZero() && input.OccurredAt.Before(p.snapshot.NoResponseCooldownStartedAt) {
+		return p.snapshot, nil
+	}
+	p.snapshot.NoResponseCooldownStartedAt = input.OccurredAt
+	p.snapshot.NoResponseCooldownUntil = input.OccurredAt.Add(cooldown)
 	p.snapshot.Version++
 	p.snapshot.UpdatedAt = input.OccurredAt
 	return p.snapshot, nil

@@ -47,6 +47,7 @@ Use separate types and APIs. Do not route all three through one JSON envelope or
 ## Runtime Invariants
 
 - Process control/cancellation at P0, action status at P1, semantic work at P2, and telemetry/memory at P3.
+- When idle, schedule P0 control before queued observations and application wakeups. P0 also wins when active work completes concurrently with a queued control.
 - Keep queues bounded. Never drop control commands or action terminal states.
 - Coalesce continuous perception to latest state; compile semantic transitions after temporal thresholds.
 - Only one goroutine mutates `WorldState`; other code reads snapshots.
@@ -73,12 +74,16 @@ Input adapters prove registration, heartbeat, monotonic sequence, deduplication,
 
 An input adapter may emit canonical `UserReply` only after it has determined that the signal is directed at the agent. The core treats it as a strongly typed observation and compiles a `USER_REPLIED` fact; it does not ingest raw audio, transcripts, reply content, or adapter-specific detection evidence. User reply is ordinary semantic input, never a P0 control command.
 
-The current application supports only the direct root-Sequence `WaitEvent(user.reply)` continuation. Start the Episode before dispatch so P0 rejection can target it; after the pre-wait actions finish, open the response window and keep the continuation in the application layer. Accept replies only in `[opened_at, deadline)`, record `ACCEPTED/USER_REPLIED`, and materialize post-wait action deadlines at actual dispatch time. Runtime lifecycle code must not interpret behavior nodes, Episode state, or reply semantics.
+The current application supports only the direct root-Sequence `WaitEvent(user.reply, 8s)` continuation. The duration comes from the behavior plan and is not a global Engine timeout. Start the Episode before dispatch so P0 rejection can target it; after the pre-wait actions finish, open the response window and keep the continuation in the application layer. Accept replies only in `[opened_at, deadline)`, record `ACCEPTED/USER_REPLIED`, and materialize post-wait action deadlines at actual dispatch time.
+
+Application exposes the specialized deadline only as an opaque `Wakeup{Token, Deadline}`. Runtime owns at most one timer and one active work, refreshes and stops the old timer after each work or control commit, and does not select timer work while another work is active. Runtime must not interpret behavior nodes, reply semantics, Episode state, Outcome, or wakeup tokens. Its idle priority is P0 control, queued observation, then due wakeup. P0 cancels any active work, calls `StopAll` immediately, joins the work, and only then commits rejection; rejection therefore wins over a simultaneous timeout.
+
+At the exact response deadline, application emits a deterministic `RESPONSE_WINDOW_EXPIRED` fact whose occurred-at time is the deadline, completes the Episode as `NO_RESPONSE/RESPONSE_WINDOW_ELAPSED`, and projects the independent subject-local no-response cooldown. The default is 5 minutes and remains configurable. Commit the event, outcome, cooldown, and pending-continuation removal before audit and post-wait `RETURN_IDLE`; audit failure only adds a warning, and action failure does not roll back committed facts.
 
 Output adapters prove capability declaration, unsupported-action rejection, action-ID idempotency, cancellation, deadline enforcement, ordered status transitions, safe disconnect, and lease expiry.
 
 Explicit `USER_REJECTED` control follows two phases. The concurrent P0 phase cancels the active processing context and calls `ActionDriver.StopAll`; it must not mutate `WorldState` or Episode state. After the active processing goroutine is joined, the Runner serially commits the rejection semantic event, ends the matching Episode with a `REJECTED` Outcome, and projects the subject-local cooldown. The default explicit-rejection cooldown is 30 minutes and remains configuration-driven. Commit the user fact even when `StopAll` fails. Shutdown cancellation never creates a rejection.
 
-Do not claim generic `WaitEvent` or `NO_RESPONSE` support until deterministic timeout scheduling, Episode completion, Outcome audit, and replay proof are implemented together.
+The specialized `user.reply` timeout is complete, but it does not establish generic `WaitEvent`, behavior-tree cursor, or workflow-engine support.
 
 ROS messages, vendor types, model tensors, database rows, and generated Protobuf messages never cross into the domain layer.

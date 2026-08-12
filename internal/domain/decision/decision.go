@@ -35,13 +35,14 @@ const (
 type ReasonCode string
 
 const (
-	ReasonLongAbsence     ReasonCode = "LONG_ABSENCE"
-	ReasonUserAttending   ReasonCode = "USER_ATTENDING"
-	ReasonNoRecentReject  ReasonCode = "NO_RECENT_REJECTION"
-	ReasonQuietMode       ReasonCode = "QUIET_MODE"
-	ReasonUserOnCall      ReasonCode = "USER_ON_CALL"
-	ReasonUserBusy        ReasonCode = "USER_BUSY"
-	ReasonRecentRejection ReasonCode = "RECENT_REJECTION"
+	ReasonLongAbsence      ReasonCode = "LONG_ABSENCE"
+	ReasonUserAttending    ReasonCode = "USER_ATTENDING"
+	ReasonNoRecentReject   ReasonCode = "NO_RECENT_REJECTION"
+	ReasonQuietMode        ReasonCode = "QUIET_MODE"
+	ReasonUserOnCall       ReasonCode = "USER_ON_CALL"
+	ReasonUserBusy         ReasonCode = "USER_BUSY"
+	ReasonRecentRejection  ReasonCode = "RECENT_REJECTION"
+	ReasonRecentNoResponse ReasonCode = "RECENT_NO_RESPONSE"
 )
 
 // Decision is a deterministic, auditable policy output. Silent is first class.
@@ -153,6 +154,12 @@ func hardGuard(snapshot state.WorldSnapshot, eventTime time.Time) []ReasonCode {
 		eventTime.Before(snapshot.RejectionCooldownUntil) {
 		return []ReasonCode{ReasonRecentRejection}
 	}
+	if !snapshot.NoResponseCooldownStartedAt.IsZero() &&
+		snapshot.NoResponseCooldownUntil.After(snapshot.NoResponseCooldownStartedAt) &&
+		!eventTime.Before(snapshot.NoResponseCooldownStartedAt) &&
+		eventTime.Before(snapshot.NoResponseCooldownUntil) {
+		return []ReasonCode{ReasonRecentNoResponse}
+	}
 	return nil
 }
 
@@ -175,7 +182,7 @@ func Validate(input Decision) error {
 // SnapshotHash is a stable, dependency-free representation for replay audits.
 func SnapshotHash(snapshot state.WorldSnapshot) string {
 	return fmt.Sprintf(
-		"subject=%s;version=%d;present=%t;busy=%t;busy_reason=%s;quiet=%t;rejection_started_at=%s;rejection_until=%s",
+		"subject=%s;version=%d;present=%t;busy=%t;busy_reason=%s;quiet=%t;rejection_started_at=%s;rejection_until=%s;no_response_started_at=%s;no_response_until=%s",
 		snapshot.SubjectID,
 		snapshot.Version,
 		snapshot.PersonPresent,
@@ -184,5 +191,7 @@ func SnapshotHash(snapshot state.WorldSnapshot) string {
 		snapshot.QuietMode,
 		snapshot.RejectionCooldownStartedAt.UTC().Format(time.RFC3339Nano),
 		snapshot.RejectionCooldownUntil.UTC().Format(time.RFC3339Nano),
+		snapshot.NoResponseCooldownStartedAt.UTC().Format(time.RFC3339Nano),
+		snapshot.NoResponseCooldownUntil.UTC().Format(time.RFC3339Nano),
 	)
 }

@@ -38,13 +38,18 @@ const Rejected OutcomeKind = "REJECTED"
 
 const Accepted OutcomeKind = "ACCEPTED"
 
+const NoResponse OutcomeKind = "NO_RESPONSE"
+
 type OutcomeReason string
 
 const ReasonExplicitUserRejection OutcomeReason = "EXPLICIT_USER_REJECTION"
 
 const ReasonUserReplied OutcomeReason = "USER_REPLIED"
 
+const ReasonResponseWindowElapsed OutcomeReason = "RESPONSE_WINDOW_ELAPSED"
+
 type ResponseWindow struct {
+	Token    string
 	OpenedAt time.Time
 	Deadline time.Time
 }
@@ -69,7 +74,8 @@ type Outcome struct {
 func (o Outcome) Validate() error {
 	const op = "validate interaction outcome"
 	validKindReason := (o.Kind == Rejected && o.Reason == ReasonExplicitUserRejection) ||
-		(o.Kind == Accepted && o.Reason == ReasonUserReplied)
+		(o.Kind == Accepted && o.Reason == ReasonUserReplied) ||
+		(o.Kind == NoResponse && o.Reason == ReasonResponseWindowElapsed)
 	if !validKindReason {
 		return fault.New(fault.InvalidInput, op, fmt.Errorf("unsupported outcome %q/%q", o.Kind, o.Reason))
 	}
@@ -89,10 +95,14 @@ type Tracker struct {
 	active                  *Episode
 	responseWindow          *ResponseWindow
 	processedFeedbackEvents map[string]struct{}
+	processedExpirations    map[string]event.SemanticEvent
 }
 
 func NewTracker() *Tracker {
-	return &Tracker{processedFeedbackEvents: make(map[string]struct{})}
+	return &Tracker{
+		processedFeedbackEvents: make(map[string]struct{}),
+		processedExpirations:    make(map[string]event.SemanticEvent),
+	}
 }
 
 // Start makes the supplied episode the active feedback target. Repeating the
@@ -118,7 +128,7 @@ func (t *Tracker) Start(input Episode) error {
 
 // OpenResponseWindow adds the one supported response window to the active
 // episode. The same window is idempotent; replacement is explicit failure.
-func (t *Tracker) OpenResponseWindow(episodeID string, openedAt time.Time, duration time.Duration) error {
+func (t *Tracker) OpenResponseWindow(episodeID, wakeupToken string, openedAt time.Time, duration time.Duration) error {
 	const op = "open episode response window"
 	if t.active == nil {
 		return fault.New(fault.PolicyBlocked, op, errors.New("no active episode"))
@@ -129,10 +139,13 @@ func (t *Tracker) OpenResponseWindow(episodeID string, openedAt time.Time, durat
 	if duration <= 0 {
 		return fault.New(fault.InvalidInput, op, errors.New("duration must be positive"))
 	}
+	if wakeupToken == "" {
+		return fault.New(fault.InvalidInput, op, errors.New("wakeup token is required"))
+	}
 	if openedAt.IsZero() || openedAt.Before(t.active.StartedAt) {
 		return fault.New(fault.InvalidInput, op, errors.New("opened_at must not precede episode start"))
 	}
-	window := ResponseWindow{OpenedAt: openedAt, Deadline: openedAt.Add(duration)}
+	window := ResponseWindow{Token: wakeupToken, OpenedAt: openedAt, Deadline: openedAt.Add(duration)}
 	if t.responseWindow != nil {
 		if *t.responseWindow == window {
 			return nil
@@ -141,6 +154,60 @@ func (t *Tracker) OpenResponseWindow(episodeID string, openedAt time.Time, durat
 	}
 	t.responseWindow = &window
 	return nil
+}
+
+// Expire evaluates a correlated response-window expiration. Before the
+// deadline it makes no state change, so the same wakeup may retry at deadline.
+func (t *Tracker) Expire(expectedEpisodeID string, input event.SemanticEvent) (*Outcome, bool, error) {
+	const op = "expire episode response window"
+	if err := input.ValidateResponseWindowExpired(); err != nil {
+		return nil, false, err
+	}
+	if expectedEpisodeID == "" {
+		return nil, false, fault.New(fault.InvalidInput, op, errors.New("expected episode id is required"))
+	}
+	if input.ResponseEpisodeID != expectedEpisodeID {
+		return nil, false, fault.New(fault.InvalidInput, op, errors.New("expected episode does not match expiration event"))
+	}
+	if previous, exists := t.processedExpirations[input.ID]; exists {
+		if previous != input {
+			return nil, false, fault.New(fault.InvalidInput, op, errors.New("expiration id was already used with different correlation"))
+		}
+		return nil, false, nil
+	}
+	if t.active == nil || t.responseWindow == nil {
+		return nil, false, fault.New(fault.PolicyBlocked, op, errors.New("no active response window"))
+	}
+	if expectedEpisodeID != t.active.ID || input.ResponseEpisodeID != t.active.ID || input.SubjectID != t.active.SubjectID || input.WakeupToken != t.responseWindow.Token {
+		return nil, false, fault.New(fault.InvalidInput, op, errors.New("expiration correlation does not match active response window"))
+	}
+	if input.OccurredAt.Before(t.responseWindow.Deadline) {
+		return nil, false, nil
+	}
+	t.processedExpirations[input.ID] = input
+
+	active := *t.active
+	t.active = nil
+	t.responseWindow = nil
+	outcome := Outcome{
+		ID:              fmt.Sprintf("outcome:%s", input.ID),
+		Kind:            NoResponse,
+		Reason:          ReasonResponseWindowElapsed,
+		EpisodeID:       active.ID,
+		InteractionID:   active.InteractionID,
+		SubjectID:       active.SubjectID,
+		DecisionID:      active.DecisionID,
+		TriggerEventID:  active.TriggerEventID,
+		FeedbackEventID: input.ID,
+		TraceID:         active.TraceID,
+		FeedbackTraceID: input.TraceID,
+		ConfigHash:      active.ConfigHash,
+		OccurredAt:      input.OccurredAt,
+	}
+	if err := outcome.Validate(); err != nil {
+		return nil, false, err
+	}
+	return &outcome, true, nil
 }
 
 // Accept evaluates one USER_REPLIED fact against the active half-open response
