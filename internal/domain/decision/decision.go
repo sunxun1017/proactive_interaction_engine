@@ -3,6 +3,7 @@ package decision
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"proactive-interaction-engine/internal/domain/event"
 	"proactive-interaction-engine/internal/domain/state"
@@ -94,7 +95,7 @@ func (p RulePolicy) Decide(input Input) Decision {
 		RandomSeed:      p.RandomSeed,
 	}
 
-	if reasons := hardGuard(input.Snapshot); len(reasons) > 0 {
+	if reasons := hardGuard(input.Snapshot, input.Event.OccurredAt); len(reasons) > 0 {
 		base.Kind = Silent
 		base.Style = StyleNone
 		base.ReasonCodes = reasons
@@ -136,7 +137,7 @@ func DetectOpportunity(input event.SemanticEvent) (Opportunity, bool) {
 	return Opportunity{Kind: WelcomeAfterReturn, EventID: input.ID}, true
 }
 
-func hardGuard(snapshot state.WorldSnapshot) []ReasonCode {
+func hardGuard(snapshot state.WorldSnapshot, eventTime time.Time) []ReasonCode {
 	if snapshot.QuietMode {
 		return []ReasonCode{ReasonQuietMode}
 	}
@@ -146,7 +147,10 @@ func hardGuard(snapshot state.WorldSnapshot) []ReasonCode {
 		}
 		return []ReasonCode{ReasonUserBusy}
 	}
-	if snapshot.RecentRejection {
+	if !snapshot.RejectionCooldownStartedAt.IsZero() &&
+		snapshot.RejectionCooldownUntil.After(snapshot.RejectionCooldownStartedAt) &&
+		!eventTime.Before(snapshot.RejectionCooldownStartedAt) &&
+		eventTime.Before(snapshot.RejectionCooldownUntil) {
 		return []ReasonCode{ReasonRecentRejection}
 	}
 	return nil
@@ -171,13 +175,14 @@ func Validate(input Decision) error {
 // SnapshotHash is a stable, dependency-free representation for replay audits.
 func SnapshotHash(snapshot state.WorldSnapshot) string {
 	return fmt.Sprintf(
-		"subject=%s;version=%d;present=%t;busy=%t;busy_reason=%s;quiet=%t;rejected=%t",
+		"subject=%s;version=%d;present=%t;busy=%t;busy_reason=%s;quiet=%t;rejection_started_at=%s;rejection_until=%s",
 		snapshot.SubjectID,
 		snapshot.Version,
 		snapshot.PersonPresent,
 		snapshot.UserBusy,
 		snapshot.BusyReason,
 		snapshot.QuietMode,
-		snapshot.RecentRejection,
+		snapshot.RejectionCooldownStartedAt.UTC().Format(time.RFC3339Nano),
+		snapshot.RejectionCooldownUntil.UTC().Format(time.RFC3339Nano),
 	)
 }

@@ -9,6 +9,7 @@
 - 与载体无关的 `BehaviorPlan` 和能力过滤
 - Fake Embodiment、Fake Clock、内存审计记录器
 - 单写者 Runner、有界 Observation/Control 队列和 P0 `StopAll` 抢占
+- 显式用户拒绝的 `REJECTED` Outcome、30 分钟单用户冷却与确定性硬守卫
 - 正常欢迎与保持静默两种模拟场景
 - Protobuf 外部契约、行为与配置样例、架构依赖测试
 - 仓库级 Agent Skill 与 Git/CI 约束
@@ -24,6 +25,8 @@ go run ./cmd/simulator -busy
 ```
 
 正常场景会生成 `GREET_SHORT` 与抽象动作；`-busy` 场景会生成带 `USER_ON_CALL` 原因的 `SILENT`，且不下发动作。
+
+当前反馈闭环覆盖显式用户拒绝；`WaitEvent` 的实际等待、正常回应和 `NO_RESPONSE` 超时仍是下一阶段能力。
 
 ## 目录
 

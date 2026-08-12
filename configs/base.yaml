@@ -2,6 +2,7 @@ schema_version: v1
 engine:
   subject_id: user-1
   return_absence_threshold: 30m
+  rejection_cooldown: 30m
   action_timeout: 2s
   external_call_timeout: 1s
   control_stop_timeout: 50ms

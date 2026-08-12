@@ -53,11 +53,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "adapter violated action-id idempotency")
 		os.Exit(1)
 	}
-	if err := driver.StopAll(context.Background(), control.ReasonUserRequested); err != nil {
+	if err := driver.StopAll(context.Background(), control.ReasonUserRejected); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if reasons := driver.StopReasons(); len(reasons) != 1 || reasons[0] != control.ReasonUserRequested {
+	if reasons := driver.StopReasons(); len(reasons) != 1 || reasons[0] != control.ReasonUserRejected {
 		fmt.Fprintln(os.Stderr, "adapter did not record the typed StopAll reason")
 		os.Exit(1)
 	}

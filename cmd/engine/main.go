@@ -31,6 +31,7 @@ func main() {
 	core, err := application.New(application.Config{
 		SubjectID:              "user-1",
 		ReturnAbsenceThreshold: 30 * time.Minute,
+		RejectionCooldown:      30 * time.Minute,
 		ActionTimeout:          2 * time.Second,
 		ExternalCallTimeout:    time.Second,
 		PolicyVersion:          "policy.v1",

@@ -17,6 +17,7 @@ import (
 type Processor interface {
 	Process(context.Context, observation.Observation) (application.Result, error)
 	StopAll(context.Context, control.Command) error
+	CommitUserRejection(context.Context, control.Command) error
 }
 
 type Config struct {
@@ -174,7 +175,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		// Mirror the engine's P0 priority rule before entering a blocking select.
 		select {
 		case request := <-r.controls:
-			r.handleControl(ctx, active, request)
+			active = r.handleControl(ctx, active, request)
 			continue
 		default:
 		}
@@ -184,7 +185,7 @@ func (r *Runner) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return r.shutdown(nil, ctx.Err())
 			case request := <-r.controls:
-				r.handleControl(ctx, nil, request)
+				active = r.handleControl(ctx, nil, request)
 			case request := <-r.observations:
 				active = r.startObservation(request)
 			}
@@ -195,7 +196,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return r.shutdown(active, ctx.Err())
 		case request := <-r.controls:
-			r.handleControl(ctx, active, request)
+			active = r.handleControl(ctx, active, request)
 		case response := <-active.completed:
 			active.cancel()
 			active.request.response <- response
@@ -228,13 +229,26 @@ func (r *Runner) startObservation(request observationRequest) *activeObservation
 	return &activeObservation{request: request, cancel: cancel, completed: completed}
 }
 
-func (r *Runner) handleControl(ctx context.Context, active *activeObservation, request controlRequest) {
+func (r *Runner) handleControl(ctx context.Context, active *activeObservation, request controlRequest) *activeObservation {
 	if active != nil {
 		active.cancel()
 	}
 	stopCtx, cancel := context.WithTimeout(ctx, r.config.StopTimeout)
-	defer cancel()
-	request.response <- r.processor.StopAll(stopCtx, request.command)
+	stopErr := r.processor.StopAll(stopCtx, request.command)
+	cancel()
+
+	if active != nil {
+		response := <-active.completed
+		active.request.response <- response
+		active = nil
+	}
+
+	var commitErr error
+	if request.command.Reason == control.ReasonUserRejected {
+		commitErr = r.processor.CommitUserRejection(ctx, request.command)
+	}
+	request.response <- errors.Join(stopErr, commitErr)
+	return active
 }
 
 func (r *Runner) shutdown(active *activeObservation, cause error) error {

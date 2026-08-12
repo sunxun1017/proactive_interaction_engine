@@ -2,6 +2,7 @@ package control
 
 import (
 	"testing"
+	"time"
 
 	"proactive-interaction-engine/internal/domain/fault"
 )
@@ -13,22 +14,26 @@ func TestCommandValidate(t *testing.T) {
 		valid   bool
 	}{
 		{
-			name: "user stop",
+			name: "explicit user rejection",
 			command: Command{
-				ID:      "control-1",
-				Kind:    StopAll,
-				Reason:  ReasonUserRequested,
-				TraceID: "trace-1",
+				ID:         "control-1",
+				Kind:       StopAll,
+				Reason:     ReasonUserRejected,
+				SubjectID:  "user-1",
+				OccurredAt: time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC),
+				TraceID:    "trace-1",
 			},
 			valid: true,
 		},
 		{
 			name: "unknown command",
 			command: Command{
-				ID:      "control-2",
-				Kind:    "RESTART",
-				Reason:  ReasonUserRequested,
-				TraceID: "trace-2",
+				ID:         "control-2",
+				Kind:       "RESTART",
+				Reason:     ReasonUserRejected,
+				SubjectID:  "user-1",
+				OccurredAt: time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC),
+				TraceID:    "trace-2",
 			},
 		},
 		{

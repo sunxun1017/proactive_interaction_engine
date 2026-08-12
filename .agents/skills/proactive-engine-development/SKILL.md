@@ -51,6 +51,7 @@ After the user answers, capture every reusable decision before completing the ta
 - Express plans only with `Sequence`, `Parallel`, `Race`, `Action`, `WaitEvent`, and `Condition` nodes.
 - Emit only capability-supported abstract actions. Hardware adapters retain the right to reject commands.
 - Treat software `StopAll` as cancellation, not as a physical emergency stop.
+- Treat explicit user rejection as P0: cancel and dispatch `StopAll` immediately, join the active processing path, then commit the rejection event, rejected Outcome, and subject-local cooldown through the single writer. Use a configurable 30-minute cooldown by default. A stop-adapter failure must not erase the rejection fact.
 - Preserve action IDs, deadlines, interaction IDs, preemption policy, capability requirements, and idempotency semantics.
 
 Reject first-phase additions of Kafka, Kubernetes, microservice decomposition, a universal pub/sub bus, full event sourcing, a workflow platform, a vector database on the real-time path, or an LLM controller unless the user explicitly revises scope with an ADR.

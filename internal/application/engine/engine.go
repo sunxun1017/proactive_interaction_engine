@@ -10,6 +10,7 @@ import (
 	"proactive-interaction-engine/internal/domain/behavior"
 	"proactive-interaction-engine/internal/domain/control"
 	"proactive-interaction-engine/internal/domain/decision"
+	"proactive-interaction-engine/internal/domain/episode"
 	"proactive-interaction-engine/internal/domain/event"
 	"proactive-interaction-engine/internal/domain/fault"
 	"proactive-interaction-engine/internal/domain/observation"
@@ -22,6 +23,7 @@ type Engine struct {
 	ingress   *ingress
 	compiler  *event.Compiler
 	projector *state.Projector
+	episodes  *episode.Tracker
 	policy    decision.Policy
 	planner   behavior.Planner
 	driver    port.ActionDriver
@@ -49,6 +51,7 @@ func New(config Config, driver port.ActionDriver, recorder port.AuditRecorder, c
 		ingress:   newIngress(),
 		compiler:  event.NewCompiler(config.ReturnAbsenceThreshold),
 		projector: state.NewProjector(config.SubjectID),
+		episodes:  episode.NewTracker(),
 		policy: decision.RulePolicy{
 			Version:         config.PolicyVersion,
 			BehaviorVersion: config.BehaviorVersion,
@@ -108,6 +111,18 @@ func (e *Engine) Process(ctx context.Context, input observation.Observation) (Re
 		plan, err := e.planner.Plan(*outcome, capabilities, now)
 		if err != nil {
 			return result, fmt.Errorf("plan decision %s: %w", outcome.ID, err)
+		}
+		if err := e.episodes.Start(episode.Episode{
+			ID:             "episode:" + outcome.InteractionID,
+			InteractionID:  outcome.InteractionID,
+			SubjectID:      semanticEvent.SubjectID,
+			DecisionID:     outcome.ID,
+			TriggerEventID: semanticEvent.ID,
+			TraceID:        outcome.TraceID,
+			ConfigHash:     outcome.ConfigHash,
+			StartedAt:      now,
+		}); err != nil {
+			return result, fmt.Errorf("start episode for decision %s: %w", outcome.ID, err)
 		}
 		result.Plans = append(result.Plans, plan)
 		e.bestEffortAudit(&result, func(auditCtx context.Context) error {
@@ -198,4 +213,61 @@ func (e *Engine) StopAll(ctx context.Context, command control.Command) error {
 		return fault.New(fault.Unavailable, "stop all actions", err)
 	}
 	return nil
+}
+
+// CommitUserRejection records explicit user feedback after runtime cancellation
+// has stopped and joined the active observation path. It is a single-writer
+// operation and must not run concurrently with Process.
+func (e *Engine) CommitUserRejection(ctx context.Context, command control.Command) error {
+	if err := command.Validate(); err != nil {
+		return err
+	}
+	if command.Reason != control.ReasonUserRejected {
+		return fault.New(fault.InvalidInput, "commit user rejection", fmt.Errorf("stop reason %q is not USER_REJECTED", command.Reason))
+	}
+	if command.SubjectID != e.config.SubjectID {
+		return fault.New(
+			fault.InvalidInput,
+			"commit user rejection",
+			fmt.Errorf("subject %s does not match engine subject %s", command.SubjectID, e.config.SubjectID),
+		)
+	}
+	if err := ctx.Err(); err != nil {
+		return classifyContext("commit user rejection", err)
+	}
+
+	feedback, err := event.NewUserRejected(
+		fmt.Sprintf("evt:%s:%s", command.ID, event.UserRejected),
+		command.SubjectID,
+		command.OccurredAt,
+		command.TraceID,
+	)
+	if err != nil {
+		return fmt.Errorf("construct rejection event for control %s: %w", command.ID, err)
+	}
+	outcome, applied, err := e.episodes.Reject(feedback)
+	if err != nil {
+		return fmt.Errorf("apply rejection event %s: %w", feedback.ID, err)
+	}
+	if !applied {
+		return nil
+	}
+	if _, err := e.projector.ApplyUserRejection(feedback, e.config.RejectionCooldown); err != nil {
+		return fmt.Errorf("project rejection event %s: %w", feedback.ID, err)
+	}
+	e.bestEffortControlAudit(func(auditCtx context.Context) error {
+		return e.recorder.RecordEvent(auditCtx, feedback)
+	})
+	if outcome != nil {
+		e.bestEffortControlAudit(func(auditCtx context.Context) error {
+			return e.recorder.RecordOutcome(auditCtx, *outcome)
+		})
+	}
+	return nil
+}
+
+func (e *Engine) bestEffortControlAudit(record func(context.Context) error) {
+	auditCtx, cancel := context.WithTimeout(context.Background(), e.config.ExternalCallTimeout)
+	defer cancel()
+	_ = record(auditCtx)
 }

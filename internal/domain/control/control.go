@@ -3,6 +3,7 @@ package control
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"proactive-interaction-engine/internal/domain/fault"
 )
@@ -14,16 +15,18 @@ const StopAll Kind = "STOP_ALL"
 type StopReason string
 
 const (
-	ReasonUserRequested StopReason = "USER_REQUESTED"
-	ReasonShutdown      StopReason = "SHUTDOWN"
+	ReasonUserRejected StopReason = "USER_REJECTED"
+	ReasonShutdown     StopReason = "SHUTDOWN"
 )
 
 // Command requests a high-priority software control operation.
 type Command struct {
-	ID      string
-	Kind    Kind
-	Reason  StopReason
-	TraceID string
+	ID         string
+	Kind       Kind
+	Reason     StopReason
+	SubjectID  string
+	OccurredAt time.Time
+	TraceID    string
 }
 
 func (c Command) Validate() error {
@@ -34,8 +37,11 @@ func (c Command) Validate() error {
 	if c.Kind != StopAll {
 		return fault.New(fault.InvalidInput, op, fmt.Errorf("unsupported kind %q", c.Kind))
 	}
-	if c.Reason != ReasonUserRequested && c.Reason != ReasonShutdown {
+	if c.Reason != ReasonUserRejected && c.Reason != ReasonShutdown {
 		return fault.New(fault.InvalidInput, op, fmt.Errorf("unsupported stop reason %q", c.Reason))
+	}
+	if c.Reason == ReasonUserRejected && (c.SubjectID == "" || c.OccurredAt.IsZero()) {
+		return fault.New(fault.InvalidInput, op, errors.New("subject_id and occurred_at are required for user rejection"))
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 
 	"proactive-interaction-engine/internal/domain/behavior"
 	"proactive-interaction-engine/internal/domain/decision"
+	"proactive-interaction-engine/internal/domain/episode"
 	"proactive-interaction-engine/internal/domain/event"
 )
 
@@ -15,6 +16,7 @@ type AuditRecorder struct {
 	decisions []decision.Decision
 	plans     []behavior.BehaviorPlan
 	statuses  []behavior.ActionStatus
+	outcomes  []episode.Outcome
 }
 
 func (r *AuditRecorder) RecordEvent(ctx context.Context, value event.SemanticEvent) error {
@@ -57,11 +59,22 @@ func (r *AuditRecorder) RecordActionStatus(ctx context.Context, value behavior.A
 	return nil
 }
 
+func (r *AuditRecorder) RecordOutcome(ctx context.Context, value episode.Outcome) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.outcomes = append(r.outcomes, value)
+	return nil
+}
+
 type AuditSnapshot struct {
 	Events    []event.SemanticEvent
 	Decisions []decision.Decision
 	Plans     []behavior.BehaviorPlan
 	Statuses  []behavior.ActionStatus
+	Outcomes  []episode.Outcome
 }
 
 func (r *AuditRecorder) Snapshot() AuditSnapshot {
@@ -72,5 +85,6 @@ func (r *AuditRecorder) Snapshot() AuditSnapshot {
 		Decisions: append([]decision.Decision(nil), r.decisions...),
 		Plans:     append([]behavior.BehaviorPlan(nil), r.plans...),
 		Statuses:  append([]behavior.ActionStatus(nil), r.statuses...),
+		Outcomes:  append([]episode.Outcome(nil), r.outcomes...),
 	}
 }

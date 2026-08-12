@@ -8,6 +8,7 @@ import (
 type Config struct {
 	SubjectID              string
 	ReturnAbsenceThreshold time.Duration
+	RejectionCooldown      time.Duration
 	ActionTimeout          time.Duration
 	ExternalCallTimeout    time.Duration
 	PolicyVersion          string
@@ -22,6 +23,9 @@ func (c Config) Validate() error {
 	}
 	if c.ReturnAbsenceThreshold <= 0 {
 		return errors.New("return absence threshold must be positive")
+	}
+	if c.RejectionCooldown <= 0 {
+		return errors.New("rejection cooldown must be positive")
 	}
 	if c.ActionTimeout <= 0 || c.ExternalCallTimeout <= 0 {
 		return errors.New("action and external call timeouts must be positive")

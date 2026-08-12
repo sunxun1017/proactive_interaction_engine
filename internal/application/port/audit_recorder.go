@@ -5,6 +5,7 @@ import (
 
 	"proactive-interaction-engine/internal/domain/behavior"
 	"proactive-interaction-engine/internal/domain/decision"
+	"proactive-interaction-engine/internal/domain/episode"
 	"proactive-interaction-engine/internal/domain/event"
 )
 
@@ -14,4 +15,5 @@ type AuditRecorder interface {
 	RecordDecision(context.Context, decision.Decision) error
 	RecordPlan(context.Context, behavior.BehaviorPlan) error
 	RecordActionStatus(context.Context, behavior.ActionStatus) error
+	RecordOutcome(context.Context, episode.Outcome) error
 }

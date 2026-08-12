@@ -1,23 +1,26 @@
 package state
 
 import (
+	"errors"
 	"time"
 
 	"proactive-interaction-engine/internal/domain/event"
+	"proactive-interaction-engine/internal/domain/fault"
 	"proactive-interaction-engine/internal/domain/observation"
 )
 
 // WorldSnapshot is an immutable-by-convention value copy of current state.
 type WorldSnapshot struct {
-	SubjectID       string
-	Version         uint64
-	UpdatedAt       time.Time
-	PersonPresent   bool
-	UserBusy        bool
-	BusyReason      observation.BusyReason
-	QuietMode       bool
-	RecentRejection bool
-	LastReturnedAt  time.Time
+	SubjectID                  string
+	Version                    uint64
+	UpdatedAt                  time.Time
+	PersonPresent              bool
+	UserBusy                   bool
+	BusyReason                 observation.BusyReason
+	QuietMode                  bool
+	RejectionCooldownStartedAt time.Time
+	RejectionCooldownUntil     time.Time
+	LastReturnedAt             time.Time
 }
 
 // Projector is the single writer for its world snapshot.
@@ -62,3 +65,25 @@ func (p *Projector) Apply(input event.SemanticEvent) WorldSnapshot {
 
 // Snapshot returns a value copy and never exposes mutable projector state.
 func (p *Projector) Snapshot() WorldSnapshot { return p.snapshot }
+
+// ApplyUserRejection projects one validated user-feedback fact. The caller
+// remains responsible for preserving the Projector's single-writer ownership.
+func (p *Projector) ApplyUserRejection(input event.SemanticEvent, cooldown time.Duration) (WorldSnapshot, error) {
+	if err := input.ValidateUserRejection(); err != nil {
+		return p.snapshot, err
+	}
+	if cooldown <= 0 {
+		return p.snapshot, fault.New(fault.InvalidInput, "project user rejection", errors.New("cooldown must be positive"))
+	}
+	if input.SubjectID != p.snapshot.SubjectID {
+		return p.snapshot, nil
+	}
+	if !p.snapshot.RejectionCooldownStartedAt.IsZero() && input.OccurredAt.Before(p.snapshot.RejectionCooldownStartedAt) {
+		return p.snapshot, nil
+	}
+	p.snapshot.RejectionCooldownStartedAt = input.OccurredAt
+	p.snapshot.RejectionCooldownUntil = input.OccurredAt.Add(cooldown)
+	p.snapshot.Version++
+	p.snapshot.UpdatedAt = input.OccurredAt
+	return p.snapshot, nil
+}

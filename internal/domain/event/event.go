@@ -1,9 +1,11 @@
 package event
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
+	"proactive-interaction-engine/internal/domain/fault"
 	"proactive-interaction-engine/internal/domain/observation"
 )
 
@@ -17,6 +19,7 @@ const (
 	UserBecameAvailable Kind = "USER_BECAME_AVAILABLE"
 	QuietModeEnabled    Kind = "QUIET_MODE_ENABLED"
 	QuietModeDisabled   Kind = "QUIET_MODE_DISABLED"
+	UserRejected        Kind = "USER_REJECTED"
 )
 
 // SemanticEvent is a fact emitted after temporal compilation.
@@ -30,6 +33,38 @@ type SemanticEvent struct {
 	SourceObservationID string
 	AbsenceDuration     time.Duration
 	BusyReason          observation.BusyReason
+}
+
+// NewUserRejected constructs the semantic fact derived from an explicit user
+// control. Unlike a control command, this value records what already happened.
+func NewUserRejected(id, subjectID string, occurredAt time.Time, traceID string) (SemanticEvent, error) {
+	input := SemanticEvent{
+		ID:         id,
+		Kind:       UserRejected,
+		SubjectID:  subjectID,
+		OccurredAt: occurredAt,
+		TraceID:    traceID,
+	}
+	if err := input.ValidateUserRejection(); err != nil {
+		return SemanticEvent{}, err
+	}
+	return input, nil
+}
+
+// ValidateUserRejection validates fields required by the user-feedback path
+// without imposing observation-source fields on control-derived facts.
+func (e SemanticEvent) ValidateUserRejection() error {
+	const op = "validate user rejection event"
+	if e.Kind != UserRejected {
+		return fault.New(fault.InvalidInput, op, fmt.Errorf("event kind %q is not USER_REJECTED", e.Kind))
+	}
+	if e.ID == "" || e.SubjectID == "" || e.TraceID == "" {
+		return fault.New(fault.InvalidInput, op, errors.New("id, subject_id, and trace_id are required"))
+	}
+	if e.OccurredAt.IsZero() {
+		return fault.New(fault.InvalidInput, op, errors.New("occurred_at is required"))
+	}
+	return nil
 }
 
 type subjectTimeline struct {

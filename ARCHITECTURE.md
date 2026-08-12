@@ -73,7 +73,9 @@ Observation
 
 控制/拒绝为 P0，取消和动作状态为 P1，语义事件与决策为 P2，日志、记忆和遥测为 P3。所有队列有界；连续状态只保留最新值；控制命令和动作终态不可丢弃。
 
-当前 `internal/runtime/lifecycle.Runner` 使用容量独立的 Observation 与 Control 队列，同时最多执行一个 Observation，以保持 `WorldState` 单写者。`STOP_ALL` 会先取消当前处理上下文，再通过 `ActionDriver.StopAll` 请求载体停止可中断动作；Runner 退出前必须等待自己启动的处理 Goroutine 结束。该软件取消链路不替代物理急停。
+当前 `internal/runtime/lifecycle.Runner` 使用容量独立的 Observation 与 Control 队列，同时最多执行一个 Observation，以保持 `WorldState` 单写者。显式 `USER_REJECTED` 分两阶段执行：P0 阶段先取消当前处理上下文并立即通过 `ActionDriver.StopAll` 请求载体停止可中断动作；Runner 等活动处理 Goroutine 退出后，再串行提交拒绝事实、终止匹配的 InteractionEpisode、记录 `REJECTED` Outcome 并进入当前用户的冷却期。`StopAll` 失败不丢弃拒绝事实，`SHUTDOWN` 不生成拒绝。该软件取消链路不替代物理急停。
+
+显式拒绝冷却默认 30 分钟、仅作用于当前用户，并保持配置化。硬守卫按事件时间在半开区间 `[rejected_at, cooldown_until)` 内返回 `SILENT/RECENT_REJECTION`，截止时刻恢复。`WorldState` 与 Episode Tracker 只允许在上述串行提交阶段修改。
 
 模型调用必须有 deadline、cancel、max concurrency、budget、circuit breaker 和本地 fallback。数据库失败进入无持久化模式；模型失败使用本地模板；载体断开取消当前计划；用户拒绝立即取消可中断行为。
 
@@ -93,6 +95,8 @@ Observation
 -> 生成能力兼容的 BehaviorPlan
 -> Fake ActionDriver 执行并记录状态
 ```
+
+已完成的反馈子闭环为“显式拒绝 -> P0 停止 -> `REJECTED` Outcome -> 冷却硬守卫”。`WaitEvent` 执行、用户正常回应和 `NO_RESPONSE` 超时 Outcome 尚未完成，后续必须与确定性回放测试一起交付，不能把行为树中已有的 `WaitEvent` 节点视为运行时已支持。
 
 暂不引入 Kafka、Kubernetes、微服务拆分、动态插件、万能事件总线、完整 Event Sourcing、工作流平台、向量数据库实时依赖、LLM 总控制器或 ROS 领域类型。
 

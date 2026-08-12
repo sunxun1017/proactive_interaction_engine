@@ -73,4 +73,8 @@ Input adapters prove registration, heartbeat, monotonic sequence, deduplication,
 
 Output adapters prove capability declaration, unsupported-action rejection, action-ID idempotency, cancellation, deadline enforcement, ordered status transitions, safe disconnect, and lease expiry.
 
+Explicit `USER_REJECTED` control follows two phases. The concurrent P0 phase cancels the active processing context and calls `ActionDriver.StopAll`; it must not mutate `WorldState` or Episode state. After the active processing goroutine is joined, the Runner serially commits the rejection semantic event, ends the matching Episode with a `REJECTED` Outcome, and projects the subject-local cooldown. The default explicit-rejection cooldown is 30 minutes and remains configuration-driven. Commit the user fact even when `StopAll` fails. Shutdown cancellation never creates a rejection.
+
+Do not claim `NO_RESPONSE` support until `WaitEvent` execution, its deterministic timeout, Episode completion, Outcome audit, and replay proof are implemented together.
+
 ROS messages, vendor types, model tensors, database rows, and generated Protobuf messages never cross into the domain layer.
