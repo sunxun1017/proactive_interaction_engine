@@ -4,14 +4,28 @@
 
 1. Restate the user-visible outcome and safety invariant.
 2. Identify unresolved choices that could materially change the result and ask the user one concise question at a time.
-3. Locate the current owner and nearest tests.
-4. Check import direction and contract compatibility.
-5. Write a failing deterministic test or replay fixture.
-6. Implement the smallest domain change.
-7. Connect it through an application port and fake adapter.
-8. Add platform or process-boundary code last.
-9. Capture reusable user answers in the Skill, relevant reference, architecture document, ADR, contract, configuration, or test.
-10. Run `make check` and inspect Git changes.
+3. When delegating, give the subagent a bounded analysis-only stage and require a written design before authorizing edits.
+4. Locate the current owner and nearest tests.
+5. Check import direction and contract compatibility.
+6. Write a failing deterministic test or replay fixture.
+7. Implement the smallest domain change.
+8. Connect it through an application port and fake adapter.
+9. Add platform or process-boundary code last.
+10. Capture reusable user answers in the Skill, relevant reference, architecture document, ADR, contract, configuration, or test.
+11. Run the resource-safe validation ladder and inspect Git changes.
+
+## Lead-Agent Coordination
+
+When a task uses subagents, keep one lead agent accountable for product intent, architecture, stage instructions, review, and final acceptance. Use this gate:
+
+1. Ask the subagent to read the repository instructions and analyze the product behavior, ownership, boundaries, risks, and test plan without editing.
+2. Review the proposal against `ARCHITECTURE.md`; resolve normal technical choices directly and narrow the implementation scope.
+3. Ask the user only about a genuinely product-defining, safety-critical, public-contract, irreversible, or acceptance-criteria decision that repository evidence cannot settle.
+4. Authorize an explicit implementation stage with owned files, invariants, non-goals, and required focused tests.
+5. Inspect the diff and test evidence. Return concrete corrections for boundary violations, hidden concurrency, speculative compatibility, excess abstraction, or missing negative and boundary tests.
+6. Run independent final checks before accepting and committing. A subagent's success report is evidence, not acceptance.
+
+Do not allow multiple agents to edit overlapping files concurrently. The lead owns Git branch changes, staging, commits, history operations, and final status reporting unless it explicitly delegates a non-conflicting Git action.
 
 ## Decision Capture
 
@@ -51,6 +65,19 @@ When a new answer supersedes an old rule, replace the old rule and update its te
 7. Review the final diff to ensure tests would detect a regression and no production-only escape path bypasses them.
 
 Prefer deterministic state and value assertions. Assert errors by stable category, not full prose. Assert ordered lifecycle transitions when order is contractual. Keep fixtures minimal and name scenarios by behavior. If a required behavior cannot be tested at the current layer, improve the seam or explain the concrete blocker before handoff.
+
+## Workstation-Safe Validation
+
+Protect the interactive development session from resource exhaustion and VS Code gray-screen failures:
+
+- Run the smallest affected package first. Expand to related packages, then repository-wide checks only after focused tests pass.
+- Run one heavy command at a time. Do not overlap full tests, race tests, Protobuf generation, static analysis, replay suites, or builds across agents.
+- For repository-wide Go checks, start with conservative package parallelism such as `go test -p 2 ./...`; use `go test -race -p 1 ./...` for the race pass unless measured headroom justifies more.
+- Keep fuzzing bounded with an explicit `-fuzztime`; never leave a fuzz run or file watcher open-ended.
+- Cap tool output at invocation time and prefer package-scoped reruns over repeatedly emitting the full suite log.
+- Before a costly check, avoid launching it when another task-owned heavy process is active. If the workstation becomes pressured, stop only the process started by this task, preserve its diagnostic output, and resume with narrower scope.
+- Do not kill or restart VS Code, extension hosts, language servers, or unrelated user processes. Report a persistent resource blocker instead.
+- Join task-owned goroutines and terminate task-owned background commands before handoff.
 
 ## Contract Changes
 

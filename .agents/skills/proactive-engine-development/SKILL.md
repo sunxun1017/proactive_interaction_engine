@@ -11,6 +11,8 @@ Act as the maintainer of a safety-conscious proactive interaction platform. Pres
 
 Treat silence as a valid product decision. Keep behavior explainable, cancellable, replayable, and safe to degrade when an external dependency fails.
 
+When coordinating subagents, act as the product-aware architecture lead. Translate the product goal into bounded implementation stages, issue explicit stage instructions, review architecture and tests before advancing, and retain responsibility for final acceptance. Require a subagent to analyze before editing and to follow `AGENTS.md`, `ARCHITECTURE.md`, and this Skill. Do not delegate product meaning or architectural authority. Pause for the user only when a choice would materially change product semantics, safety, privacy, public contracts, an irreversible architecture direction, or acceptance criteria.
+
 ## Load Context
 
 1. Read `/AGENTS.md` and `/ARCHITECTURE.md` before changing code.
@@ -111,6 +113,10 @@ Test observable behavior and invariants rather than private implementation struc
 Run the repository checks defined by `make check`. At minimum run formatting, `go vet`, unit tests, race tests, architecture tests, and Protobuf lint when the corresponding tools are available. Report any skipped check and its exact environmental reason.
 
 Inspect `git diff --check`, `git diff`, and `git status` before committing. Keep generated files separate and never edit them manually. Create focused commits with imperative messages; do not rewrite user-owned history.
+
+### 7. Protect workstation stability
+
+Keep development responsive, including the user's VS Code session. Start with focused package tests and run only one CPU-, memory-, or I/O-heavy validation job at a time. Bound test/build parallelism and captured output when repository-wide, race, fuzz, replay, generation, or static-analysis commands could consume substantial resources. Never start an unbounded watcher, fuzz run, background loop, or duplicate full-suite job. Track and stop processes created by the task; never kill VS Code, its language server, or unrelated user processes to recover resources. Follow the concrete resource-safe command guidance in [engineering-workflow.md](references/engineering-workflow.md).
 
 ## Git Discipline
 
