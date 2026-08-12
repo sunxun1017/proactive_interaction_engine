@@ -75,6 +75,7 @@ Protect the interactive development session from resource exhaustion and VS Code
 - For repository-wide Go checks, start with conservative package parallelism such as `go test -p 2 ./...`; use `go test -race -p 1 ./...` for the race pass unless measured headroom justifies more.
 - Keep fuzzing bounded with an explicit `-fuzztime`; never leave a fuzz run or file watcher open-ended.
 - Cap tool output at invocation time and prefer package-scoped reruns over repeatedly emitting the full suite log.
+- Avoid rendering whole large files, repository-wide diffs, verbose logs, or rapid polling in the editor. Prefer `rg` with narrow context, `git diff --stat`, file-scoped diffs, and concise summaries; fetch additional slices only when needed.
 - Before a costly check, avoid launching it when another task-owned heavy process is active. If the workstation becomes pressured, stop only the process started by this task, preserve its diagnostic output, and resume with narrower scope.
 - Do not kill or restart VS Code, extension hosts, language servers, or unrelated user processes. Report a persistent resource blocker instead.
 - Join task-owned goroutines and terminate task-owned background commands before handoff.

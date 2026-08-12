@@ -116,7 +116,7 @@ Inspect `git diff --check`, `git diff`, and `git status` before committing. Keep
 
 ### 7. Protect workstation stability
 
-Keep development responsive, including the user's VS Code session. Start with focused package tests and run only one CPU-, memory-, or I/O-heavy validation job at a time. Bound test/build parallelism and captured output when repository-wide, race, fuzz, replay, generation, or static-analysis commands could consume substantial resources. Never start an unbounded watcher, fuzz run, background loop, or duplicate full-suite job. Track and stop processes created by the task; never kill VS Code, its language server, or unrelated user processes to recover resources. Follow the concrete resource-safe command guidance in [engineering-workflow.md](references/engineering-workflow.md).
+Keep development responsive, including the user's VS Code session. Start with focused package tests and run only one CPU-, memory-, or I/O-heavy validation job at a time. Bound test/build parallelism and captured output when repository-wide, race, fuzz, replay, generation, or static-analysis commands could consume substantial resources. Keep each tool response small: use targeted searches, diff statistics, and narrow excerpts instead of printing whole large files, diffs, logs, or repeated status streams into the editor. Never start an unbounded watcher, fuzz run, background loop, or duplicate full-suite job. Track and stop processes created by the task; never kill VS Code, its language server, or unrelated user processes to recover resources. Follow the concrete resource-safe command guidance in [engineering-workflow.md](references/engineering-workflow.md).
 
 ## Git Discipline
 
