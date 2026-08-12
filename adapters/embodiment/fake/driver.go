@@ -2,12 +2,12 @@ package fake
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 
 	"proactive-interaction-engine/internal/application/port"
 	"proactive-interaction-engine/internal/domain/behavior"
+	"proactive-interaction-engine/internal/domain/control"
 	"proactive-interaction-engine/internal/domain/fault"
 )
 
@@ -18,7 +18,7 @@ type Driver struct {
 	clock        port.Clock
 	executed     map[string][]behavior.ActionStatus
 	commands     []behavior.ActionCommand
-	stopped      bool
+	stopReasons  []control.StopReason
 }
 
 func NewDriver(capabilities behavior.Capabilities, clock port.Clock) *Driver {
@@ -52,9 +52,6 @@ func (d *Driver) Execute(ctx context.Context, command behavior.ActionCommand) (<
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.stopped {
-		return nil, fault.New(fault.AdapterRejected, "fake execute", errors.New("adapter is stopped"))
-	}
 	if !d.capabilities[command.RequiredCapability].Supported {
 		return nil, fault.New(
 			fault.CapabilityMissing,
@@ -100,13 +97,13 @@ func statusStream(statuses []behavior.ActionStatus) <-chan behavior.ActionStatus
 	return stream
 }
 
-func (d *Driver) StopAll(ctx context.Context, _ string) error {
+func (d *Driver) StopAll(ctx context.Context, reason control.StopReason) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.stopped = true
+	d.stopReasons = append(d.stopReasons, reason)
 	return nil
 }
 
@@ -115,4 +112,11 @@ func (d *Driver) Commands() []behavior.ActionCommand {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return append([]behavior.ActionCommand(nil), d.commands...)
+}
+
+// StopReasons returns a copy of software cancellation requests.
+func (d *Driver) StopReasons() []control.StopReason {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]control.StopReason(nil), d.stopReasons...)
 }

@@ -8,6 +8,7 @@ import (
 
 	"proactive-interaction-engine/internal/application/port"
 	"proactive-interaction-engine/internal/domain/behavior"
+	"proactive-interaction-engine/internal/domain/control"
 	"proactive-interaction-engine/internal/domain/decision"
 	"proactive-interaction-engine/internal/domain/event"
 	"proactive-interaction-engine/internal/domain/fault"
@@ -187,10 +188,13 @@ func (e *Engine) Snapshot() state.WorldSnapshot { return e.projector.Snapshot() 
 
 // StopAll requests cancellation of interruptible software actions. It is not a
 // physical emergency stop.
-func (e *Engine) StopAll(ctx context.Context, reason string) error {
+func (e *Engine) StopAll(ctx context.Context, command control.Command) error {
+	if err := command.Validate(); err != nil {
+		return err
+	}
 	callCtx, cancel := context.WithTimeout(ctx, e.config.ExternalCallTimeout)
 	defer cancel()
-	if err := e.driver.StopAll(callCtx, reason); err != nil {
+	if err := e.driver.StopAll(callCtx, command.Reason); err != nil {
 		return fault.New(fault.Unavailable, "stop all actions", err)
 	}
 	return nil

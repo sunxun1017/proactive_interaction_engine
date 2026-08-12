@@ -8,6 +8,7 @@
 - 返回欢迎机会发现、忙碌/安静模式硬守卫、确定性规则策略
 - 与载体无关的 `BehaviorPlan` 和能力过滤
 - Fake Embodiment、Fake Clock、内存审计记录器
+- 单写者 Runner、有界 Observation/Control 队列和 P0 `StopAll` 抢占
 - 正常欢迎与保持静默两种模拟场景
 - Protobuf 外部契约、行为与配置样例、架构依赖测试
 - 仓库级 Agent Skill 与 Git/CI 约束

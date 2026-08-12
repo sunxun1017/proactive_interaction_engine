@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,6 +17,7 @@ import (
 	application "proactive-interaction-engine/internal/application/engine"
 	"proactive-interaction-engine/internal/domain/behavior"
 	engineclock "proactive-interaction-engine/internal/runtime/clock"
+	"proactive-interaction-engine/internal/runtime/lifecycle"
 )
 
 func main() {
@@ -40,12 +42,16 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	runner, err := lifecycle.New(lifecycle.DefaultConfig(), core)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	fmt.Println("proactive interaction engine ready; run cmd/simulator for the replay vertical slice")
-	<-ctx.Done()
-	if err := core.StopAll(context.Background(), "shutdown"); err != nil {
+	fmt.Println("proactive interaction engine ready with bounded P0 control and observation queues")
+	if err := runner.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

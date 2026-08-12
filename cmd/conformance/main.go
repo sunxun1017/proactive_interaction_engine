@@ -9,6 +9,7 @@ import (
 
 	"proactive-interaction-engine/adapters/embodiment/fake"
 	"proactive-interaction-engine/internal/domain/behavior"
+	"proactive-interaction-engine/internal/domain/control"
 	engineclock "proactive-interaction-engine/internal/runtime/clock"
 )
 
@@ -50,6 +51,14 @@ func main() {
 	}
 	if len(driver.Commands()) != 1 {
 		fmt.Fprintln(os.Stderr, "adapter violated action-id idempotency")
+		os.Exit(1)
+	}
+	if err := driver.StopAll(context.Background(), control.ReasonUserRequested); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if reasons := driver.StopReasons(); len(reasons) != 1 || reasons[0] != control.ReasonUserRequested {
+		fmt.Fprintln(os.Stderr, "adapter did not record the typed StopAll reason")
 		os.Exit(1)
 	}
 	fmt.Println("fake embodiment conformance: PASS")

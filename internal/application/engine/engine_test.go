@@ -8,6 +8,7 @@ import (
 	fakeembodiment "proactive-interaction-engine/adapters/embodiment/fake"
 	memorystorage "proactive-interaction-engine/adapters/storage/memory"
 	"proactive-interaction-engine/internal/domain/behavior"
+	"proactive-interaction-engine/internal/domain/control"
 	"proactive-interaction-engine/internal/domain/decision"
 	"proactive-interaction-engine/internal/domain/fault"
 	"proactive-interaction-engine/internal/domain/observation"
@@ -57,6 +58,23 @@ func TestIngressRejectsDuplicateObservation(t *testing.T) {
 	_, err := engine.Process(context.Background(), input)
 	if !fault.IsCode(err, fault.StaleInput) {
 		t.Fatalf("Process(duplicate) error = %v, want StaleInput", err)
+	}
+}
+
+func TestStopAllForwardsTypedReason(t *testing.T) {
+	engine, _, driver := newTestEngine(t)
+	command := control.Command{
+		ID:      "control-1",
+		Kind:    control.StopAll,
+		Reason:  control.ReasonUserRequested,
+		TraceID: "trace-1",
+	}
+	if err := engine.StopAll(context.Background(), command); err != nil {
+		t.Fatalf("StopAll() error = %v", err)
+	}
+	reasons := driver.StopReasons()
+	if len(reasons) != 1 || reasons[0] != control.ReasonUserRequested {
+		t.Fatalf("StopReasons() = %#v, want USER_REQUESTED", reasons)
 	}
 }
 
