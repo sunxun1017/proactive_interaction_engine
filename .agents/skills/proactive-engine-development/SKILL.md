@@ -20,6 +20,20 @@ Treat silence as a valid product decision. Keep behavior explainable, cancellabl
 
 Resolve paths relative to the repository root. If a requested change conflicts with a hard constraint, state the conflict and implement the closest compliant design unless the user explicitly changes the architecture.
 
+## Clarify and Capture Decisions
+
+Ask the user a concise question before committing to an assumption that could materially change product behavior, domain meaning, architecture, public contracts, safety or privacy policy, supported platforms, data retention, operational constraints, or acceptance criteria. Explain the relevant options and tradeoff. Continue safe read-only inspection or independent work while waiting when possible.
+
+Do not interrupt for details that are discoverable from repository evidence or for low-risk, reversible implementation choices that preserve stated intent.
+
+After the user answers, capture every reusable decision before completing the task:
+
+- Add stable, always-applicable operating rules to this `SKILL.md`.
+- Add detailed architecture or engineering guidance to the directly linked reference file.
+- Update `ARCHITECTURE.md`, an ADR, contracts, configuration, or tests when the answer changes those artifacts.
+- Avoid persisting credentials, personal data, temporary debugging facts, or one-off preferences with no future value.
+- Keep the Skill concise, remove superseded guidance, validate it, and include the update in the same focused Git commit as the resulting work.
+
 ## Non-Negotiable Architecture Constraints
 
 - Keep the core as a modular monolith using ports and adapters.

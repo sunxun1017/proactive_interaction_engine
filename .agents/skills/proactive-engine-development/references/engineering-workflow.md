@@ -3,13 +3,21 @@
 ## Change Checklist
 
 1. Restate the user-visible outcome and safety invariant.
-2. Locate the current owner and nearest tests.
-3. Check import direction and contract compatibility.
-4. Write a failing deterministic test or replay fixture.
-5. Implement the smallest domain change.
-6. Connect it through an application port and fake adapter.
-7. Add platform or process-boundary code last.
-8. Run `make check` and inspect Git changes.
+2. Identify unresolved choices that could materially change the result and ask the user one concise question at a time.
+3. Locate the current owner and nearest tests.
+4. Check import direction and contract compatibility.
+5. Write a failing deterministic test or replay fixture.
+6. Implement the smallest domain change.
+7. Connect it through an application port and fake adapter.
+8. Add platform or process-boundary code last.
+9. Capture reusable user answers in the Skill, relevant reference, architecture document, ADR, contract, configuration, or test.
+10. Run `make check` and inspect Git changes.
+
+## Decision Capture
+
+Persist a user answer only when it will guide future work. Put short universal rules in `SKILL.md`; put detailed implementation guidance in this reference; put system boundaries in `ARCHITECTURE.md` or an ADR; encode observable behavior in tests and configuration. Update all affected sources of truth together instead of copying the same prose into multiple files.
+
+When a new answer supersedes an old rule, replace the old rule and update its tests. Do not append contradictory history to the Skill. Record architectural history in an ADR when the reasoning remains important.
 
 ## Go Conventions
 
