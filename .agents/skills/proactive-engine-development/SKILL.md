@@ -76,6 +76,8 @@ Work in this order:
 
 Do not create empty abstractions for hypothetical platforms.
 
+Avoid speculative compatibility. Do not add legacy aliases, dual implementations, version branches, silent coercions, or fallback paths for callers and formats that are not documented as supported. Let internal APIs evolve cleanly. When compatibility is required for a published contract, isolate it in a boundary adapter or mapper, cover it with contract tests, document the supported versions, and define a removal condition when it is temporary.
+
 ### 4. Make failures explicit
 
 Use typed error categories: `InvalidInput`, `StaleInput`, `Unavailable`, `DeadlineExceeded`, `CapabilityMissing`, `PolicyBlocked`, `PermissionDenied`, or `AdapterRejected`. Wrap errors with operation and stable identifiers. Do not panic for recoverable business failures.
@@ -83,6 +85,14 @@ Use typed error categories: `InvalidInput`, `StaleInput`, `Unavailable`, `Deadli
 Give every external call a `context.Context` and deadline. Provide cancellation, bounded concurrency, and a deterministic fallback where applicable.
 
 ### 5. Prove behavior
+
+Use a closed test loop for every behavior change and bug fix:
+
+1. Reproduce the missing behavior or defect with a focused failing test.
+2. Make the smallest implementation change that makes the test pass.
+3. Run the focused test after each meaningful edit.
+4. Refactor only while tests are green; remove duplication, dead paths, and incidental complexity.
+5. Run the affected package, invariant, replay, architecture, race, and full-suite checks appropriate to the risk.
 
 Add tests at the cheapest layer that can prove the invariant:
 
@@ -94,6 +104,8 @@ Add tests at the cheapest layer that can prove the invariant:
 
 Never use `time.Sleep` or `time.Now` in domain tests. Inject a clock. Ensure identical input, configuration, policy version, and random seed produce the same decision.
 
+Test observable behavior and invariants rather than private implementation structure. Include negative, boundary, timeout, cancellation, and degraded-path cases where relevant. Do not weaken assertions, add arbitrary sleeps, or delete a valid test merely to make the suite pass.
+
 ### 6. Verify and hand off
 
 Run the repository checks defined by `make check`. At minimum run formatting, `go vet`, unit tests, race tests, architecture tests, and Protobuf lint when the corresponding tools are available. Report any skipped check and its exact environmental reason.
@@ -104,11 +116,15 @@ Inspect `git diff --check`, `git diff`, and `git status` before committing. Keep
 
 - Name packages by stable business responsibility; never add `utils`, `common`, or `helpers` catch-all packages.
 - Keep interfaces small and define them where they are consumed.
+- Prefer the simplest direct design that preserves the architecture. Add an abstraction only after a real second use or a required boundary proves it.
+- Keep control flow shallow, names domain-specific, functions focused, and data ownership explicit. Prefer deleting obsolete code over commenting it out or preserving parallel paths.
+- Avoid clever compression, premature optimization, hidden mutation, boolean-flag APIs, and comments that merely restate code. Comment intent, invariants, and non-obvious tradeoffs.
+- Do not preserve compatibility for undocumented internal behavior. Keep only compatibility required by a published contract or an explicitly supported migration.
 - Add `doc.go` to each core package and document its responsibility and forbidden dependencies.
 - Use bounded channels and explicit channels by purpose. The object starting a goroutine must also stop and join it.
 - Keep logs structured around stable event names and correlation IDs; do not encode machine semantics only in prose.
 - Keep configuration declarative: validate schema, ranges, and cross-field constraints, then compute a hash before activation.
-- Preserve backward compatibility in Protobuf: never reuse field numbers, remove a `oneof` alternative without reservation, or introduce `Any` for core payloads.
+- Preserve documented public Protobuf compatibility: never reuse field numbers, remove a `oneof` alternative without reservation, or introduce `Any` for core payloads.
 - Keep comments focused on intent and boundary rationale. Prefer domain names over implementation jargon.
 
 ## Definition of Done
@@ -120,5 +136,7 @@ A change is complete only when:
 - Unsupported capabilities cannot enter a plan.
 - A model, network, or database outage cannot block silence, cancellation, local acknowledgement, or template fallback.
 - Decisions and actions remain traceable through event, interaction, action, policy, behavior, config, and snapshot identifiers.
-- New behavior has deterministic tests and architecture checks still pass.
+- New behavior has deterministic tests; bug fixes include a regression test that fails without the fix.
+- No speculative compatibility layer, dead branch, unnecessary abstraction, or weakened test remains.
+- Focused tests and the risk-appropriate full validation suite pass, including architecture and race checks when applicable.
 - Documentation and the Skill remain consistent with the implementation.

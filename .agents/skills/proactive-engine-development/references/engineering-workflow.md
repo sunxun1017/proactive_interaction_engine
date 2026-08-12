@@ -30,6 +30,28 @@ When a new answer supersedes an old rule, replace the old rule and update its te
 - Use table-driven tests and `t.Parallel()` only when the subject has no shared mutable state.
 - Use fake clocks and deterministic IDs in tests; never wait for wall time.
 
+## Simplicity and Compatibility
+
+- Start with the direct implementation. Extract an interface, generic helper, option type, or framework only when a real boundary or repeated use demonstrates the need.
+- Optimize for one obvious path through the code. Split complex conditions by domain meaning and return early when it improves readability.
+- Remove dead code, commented-out code, obsolete feature flags, unused configuration, and duplicate implementations in the same change that makes them obsolete.
+- Do not add compatibility aliases, dual reads/writes, schema guessing, permissive decoding, or silent type coercion for hypothetical users.
+- Treat unexported and unreleased internal APIs as changeable. Update their callers and tests together instead of carrying a shim.
+- Preserve compatibility only for documented external versions or an explicit migration requirement. Isolate it at the boundary, make version selection explicit, add contract tests and telemetry, and document its owner and removal condition.
+- Fail clearly on unsupported versions or invalid input. Do not convert incompatibility into ambiguous default behavior.
+
+## Test Loop
+
+1. Select the smallest test surface that expresses the user-visible behavior or invariant.
+2. For a defect, prove the test fails for the reported reason before changing production code.
+3. Implement the minimum fix and rerun the focused test until green.
+4. Add boundary and negative cases revealed by the change; avoid duplicating equivalent assertions across layers.
+5. Refactor names, structure, and duplication while keeping the focused suite green.
+6. Run progressively broader checks: affected package, related domain packages, replay/contract/architecture tests, race tests for concurrency, then `make check`.
+7. Review the final diff to ensure tests would detect a regression and no production-only escape path bypasses them.
+
+Prefer deterministic state and value assertions. Assert errors by stable category, not full prose. Assert ordered lifecycle transitions when order is contractual. Keep fixtures minimal and name scenarios by behavior. If a required behavior cannot be tested at the current layer, improve the seam or explain the concrete blocker before handoff.
+
 ## Contract Changes
 
 Before editing `.proto` files, classify the change as additive, compatible migration, or breaking. Prefer additive optional fields and new `oneof` alternatives. Reserve deleted numbers and names. Update adapter conformance fixtures and mappers together.
