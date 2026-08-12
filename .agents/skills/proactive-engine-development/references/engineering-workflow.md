@@ -84,8 +84,69 @@ Add parameters only for tuning, not branching business programs. Define defaults
 
 ## Git Protocol
 
-- Inspect status before editing and preserve unrelated user changes.
-- Stage only files belonging to the requested change.
-- Run `git diff --check` before committing.
-- Use an imperative, scoped commit message such as `feat: add return greeting vertical slice`.
-- Never force-push, reset hard, or rewrite existing user commits without explicit approval.
+### Branches
+
+- Keep `main` as the long-lived default branch. Do not make new work commits directly on `main`; create a short-lived task branch first unless the user explicitly requests another workflow.
+- Use `<type>/<short-kebab-description>` when no task ID exists.
+- Use `<type>/<TASK-ID-short-kebab-description>` when a task ID exists. Task IDs are optional, but never omit an available ID.
+- Allow `feat`, `fix`, `hotfix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`, and `release` branch types.
+- Use `release/v<major>.<minor>.<patch>` for a release branch.
+- Write the description in lowercase ASCII kebab-case with a specific outcome. Keep it short enough to scan in logs.
+- Keep one concern per branch. Do not encode author names, dates, environments, or implementation status in branch names.
+
+Valid examples:
+
+```text
+feat/episode-outcome-tracking
+fix/PIE-123-action-deadline
+docs/git-conventions
+release/v1.2.0
+```
+
+Invalid examples:
+
+```text
+feature_new_stuff
+sx/changes
+fix/2026-08-12
+work/update
+```
+
+### Commits
+
+Use Conventional Commits:
+
+```text
+<type>(<optional-scope>)!: <summary>
+```
+
+- Allow `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`, and `revert` commit types. Use `fix` for commits on `hotfix/*` branches.
+- Use a lowercase domain or package name for the optional scope, such as `runtime`, `decision`, `behavior`, `contracts`, or `skill`.
+- Write the summary in concise English, lowercase imperative mood, without a trailing period, and keep the complete subject at 72 characters or fewer.
+- Explain why and important tradeoffs in the body when the subject is insufficient. Describe the change itself in the diff, not in a long procedural narrative.
+- Mark a breaking change with `!` and add a `BREAKING CHANGE: <migration impact>` footer.
+- Add `Refs: TASK-ID` when a task ID exists.
+- Keep commits atomic: one coherent outcome, relevant implementation, tests, configuration, and documentation. Split unrelated changes before committing.
+- Ensure every non-documentation commit builds and passes the risk-appropriate focused tests. Do not use a broken intermediate commit as a normal handoff.
+- Do not leave `WIP`, `fixup!`, `squash!`, `update`, `changes`, `fix stuff`, or similarly vague messages in shared history.
+
+Examples:
+
+```text
+feat(episode): track interaction outcomes
+fix(runtime): enforce action cancellation deadline
+docs(skill): define git conventions
+feat(contracts)!: require protocol version
+
+BREAKING CHANGE: adapters must send protocol_version in capability requests.
+Refs: PIE-123
+```
+
+### Before Commit
+
+1. Inspect `git status --short --branch` and confirm the branch name complies.
+2. Preserve unrelated user changes and stage only files for the current outcome.
+3. Inspect `git diff` and `git diff --cached`; check for secrets, generated-file edits, debug code, dead code, and accidental compatibility paths.
+4. Run `git diff --check` and the risk-appropriate formatting, focused, full, race, architecture, static-analysis, and contract checks.
+5. Confirm the staged change and commit message describe the same atomic outcome.
+6. Never force-push, hard-reset, or rewrite user-owned commits without explicit approval.

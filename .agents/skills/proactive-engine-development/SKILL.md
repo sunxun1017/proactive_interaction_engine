@@ -112,6 +112,17 @@ Run the repository checks defined by `make check`. At minimum run formatting, `g
 
 Inspect `git diff --check`, `git diff`, and `git status` before committing. Keep generated files separate and never edit them manually. Create focused commits with imperative messages; do not rewrite user-owned history.
 
+## Git Discipline
+
+- Keep `main` as the long-lived default branch. Before editing, create one short-lived branch for the work item unless the user explicitly requests a different workflow.
+- Name branches `<type>/<short-kebab-description>` or, when a task ID exists, `<type>/<TASK-ID-short-kebab-description>`. Task IDs are optional, but must be included when available.
+- Use branch types `feat`, `fix`, `hotfix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`, or `release`. Name release branches `release/v<major>.<minor>.<patch>`.
+- Use lowercase ASCII kebab-case for descriptions. Do not use spaces, underscores, dates, personal names, or vague names such as `update`, `changes`, or `work`.
+- Format commits as Conventional Commits: `<type>(<optional-scope>)!: <imperative summary>`. Use `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`, or `revert`; use `fix` for work on a `hotfix/*` branch.
+- Write the summary in concise English, lowercase imperative mood, no trailing period, and at most 72 characters. Add a body for rationale or tradeoffs and footers for task references or breaking changes.
+- Keep each commit atomic, buildable, and independently reviewable. Include directly related tests and documentation in the same commit. Do not leave `WIP`, `fixup!`, `squash!`, `update`, or `fix stuff` messages in shared history.
+- Follow the complete branch, commit, and pre-commit rules in [engineering-workflow.md](references/engineering-workflow.md).
+
 ## Code Rules
 
 - Name packages by stable business responsibility; never add `utils`, `common`, or `helpers` catch-all packages.
