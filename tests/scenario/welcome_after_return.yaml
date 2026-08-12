@@ -1,0 +1,16 @@
+name: welcome_after_return
+timeline:
+  - at: 0s
+    observation: person_presence
+    present: false
+  - at: 45m
+    observation: person_presence
+    present: true
+expect:
+  decisions:
+    - GREET_SHORT
+  actions:
+    - ATTEND_USER
+    - ACKNOWLEDGE
+    - SPEAK
+    - RETURN_IDLE

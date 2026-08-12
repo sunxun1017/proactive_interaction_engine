@@ -1,0 +1,3 @@
+module proactive-interaction-engine
+
+go 1.23.0

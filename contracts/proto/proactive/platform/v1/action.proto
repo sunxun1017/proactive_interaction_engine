@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package proactive.platform.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "proactive-interaction-engine/gen/go/proactive/platform/v1;platformv1";
+
+message ActionCommand {
+  string action_id = 1;
+  string interaction_id = 2;
+  google.protobuf.Timestamp deadline = 3;
+  PreemptionPolicy preemption = 4;
+  string trace_id = 5;
+  string required_capability = 6;
+  IdempotencySemantics idempotency = 7;
+
+  oneof payload {
+    AttendUser attend_user = 20;
+    Speak speak = 21;
+    Express express = 22;
+    Acknowledge acknowledge = 23;
+    ReturnIdle return_idle = 24;
+  }
+}
+
+enum PreemptionPolicy {
+  PREEMPTION_POLICY_UNSPECIFIED = 0;
+  PREEMPTION_POLICY_NEVER = 1;
+  PREEMPTION_POLICY_INTERRUPTIBLE = 2;
+}
+
+enum IdempotencySemantics {
+  IDEMPOTENCY_SEMANTICS_UNSPECIFIED = 0;
+  IDEMPOTENCY_SEMANTICS_ACTION_ID = 1;
+}
+
+message AttendUser {}
+
+message Speak {
+  string template_id = 1;
+  string realized_text = 2;
+}
+
+message Express {
+  Expression expression = 1;
+}
+
+enum Expression {
+  EXPRESSION_UNSPECIFIED = 0;
+  EXPRESSION_NEUTRAL = 1;
+  EXPRESSION_WARM = 2;
+  EXPRESSION_CONCERNED = 3;
+}
+
+message Acknowledge {}
+
+message ReturnIdle {}
+
+message ActionStatus {
+  string action_id = 1;
+  string interaction_id = 2;
+  string trace_id = 3;
+  ActionState state = 4;
+  google.protobuf.Timestamp occurred_at = 5;
+  string reason_code = 6;
+}
+
+enum ActionState {
+  ACTION_STATE_UNSPECIFIED = 0;
+  ACTION_STATE_CREATED = 1;
+  ACTION_STATE_DISPATCHED = 2;
+  ACTION_STATE_ACCEPTED = 3;
+  ACTION_STATE_STARTED = 4;
+  ACTION_STATE_COMPLETED = 5;
+  ACTION_STATE_REJECTED = 6;
+  ACTION_STATE_CANCELLED = 7;
+  ACTION_STATE_TIMED_OUT = 8;
+  ACTION_STATE_FAILED = 9;
+}

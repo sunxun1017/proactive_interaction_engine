@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package proactive.platform.v1;
+
+import "proactive/platform/v1/action.proto";
+import "proactive/platform/v1/observation.proto";
+
+option go_package = "proactive-interaction-engine/gen/go/proactive/platform/v1;platformv1";
+
+service ObservationIngressService {
+  rpc Publish(PublishRequest) returns (PublishResponse);
+}
+
+service EmbodimentAdapterService {
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+  rpc Execute(ExecuteRequest) returns (stream ExecuteResponse);
+  rpc StopAll(StopAllRequest) returns (StopAllResponse);
+}
+
+message PublishRequest {
+  ObservationEnvelope observation = 1;
+}
+
+message PublishResponse {
+  ObservationReceipt receipt = 1;
+}
+
+message ObservationReceipt {
+  string observation_id = 1;
+  ReceiptStatus status = 2;
+  string reason_code = 3;
+}
+
+enum ReceiptStatus {
+  RECEIPT_STATUS_UNSPECIFIED = 0;
+  RECEIPT_STATUS_ACCEPTED = 1;
+  RECEIPT_STATUS_DUPLICATE = 2;
+  RECEIPT_STATUS_STALE = 3;
+  RECEIPT_STATUS_REJECTED = 4;
+}
+
+message GetCapabilitiesRequest {
+  string protocol_version = 1;
+}
+
+message GetCapabilitiesResponse {
+  CapabilityDeclaration capabilities = 1;
+}
+
+message CapabilityDeclaration {
+  string adapter_id = 1;
+  string protocol_version = 2;
+  repeated ActionCapability actions = 3;
+  repeated ResourceCapacity resources = 4;
+}
+
+message ActionCapability {
+  string action_type = 1;
+  bool supported = 2;
+  bool interruptible = 3;
+  repeated string supported_values = 4;
+}
+
+message ResourceCapacity {
+  string resource = 1;
+  uint32 capacity = 2;
+}
+
+message ExecuteRequest {
+  ActionCommand command = 1;
+}
+
+message ExecuteResponse {
+  ActionStatus status = 1;
+}
+
+message StopAllRequest {
+  string reason_code = 1;
+  string trace_id = 2;
+}
+
+message StopAllResponse {
+  bool accepted = 1;
+}

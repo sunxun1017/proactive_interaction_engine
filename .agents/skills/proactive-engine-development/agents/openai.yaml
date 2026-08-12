@@ -1,0 +1,4 @@
+interface:
+  display_name: "主动交互引擎开发"
+  short_description: "Build proactive engine changes within architecture rules"
+  default_prompt: "Use $proactive-engine-development to implement the next vertical slice while preserving all architecture boundaries."

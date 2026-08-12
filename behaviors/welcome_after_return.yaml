@@ -1,0 +1,23 @@
+id: welcome_after_return.v1
+root:
+  sequence:
+    - action:
+        type: ATTEND_USER
+        timeout_ms: 200
+    - condition: attend_user_completed_or_skipped
+    - action:
+        type: ACKNOWLEDGE
+        resource: GESTURE
+        timeout_ms: 500
+    - action:
+        type: SPEAK
+        resource: VOICE
+        template: welcome.return
+        generation_deadline_ms: 500
+        fallback: local_template
+    - wait_event:
+        type: user.reply
+        timeout_ms: 8000
+    - action:
+        type: RETURN_IDLE
+        timeout_ms: 500

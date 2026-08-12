@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package proactive.platform.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "proactive-interaction-engine/gen/go/proactive/platform/v1;platformv1";
+
+message ObservationEnvelope {
+  string id = 1;
+  string source_id = 2;
+  uint64 source_seq = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+  google.protobuf.Duration ttl = 5;
+  string subject_id = 6;
+  float confidence = 7;
+  string trace_id = 8;
+
+  oneof payload {
+    PersonPresence person_presence = 20;
+    UserBusy user_busy = 21;
+    QuietMode quiet_mode = 22;
+    SpeechActivity speech_activity = 23;
+    UserControl user_control = 24;
+    DeviceCondition device_condition = 25;
+  }
+}
+
+message PersonPresence {
+  bool present = 1;
+}
+
+message UserBusy {
+  bool busy = 1;
+  BusyReason reason = 2;
+}
+
+enum BusyReason {
+  BUSY_REASON_UNSPECIFIED = 0;
+  BUSY_REASON_ON_CALL = 1;
+  BUSY_REASON_FOCUSED = 2;
+}
+
+message QuietMode {
+  bool enabled = 1;
+}
+
+message SpeechActivity {
+  bool active = 1;
+  bool addressing_agent = 2;
+}
+
+message UserControl {
+  UserControlKind kind = 1;
+}
+
+enum UserControlKind {
+  USER_CONTROL_KIND_UNSPECIFIED = 0;
+  USER_CONTROL_KIND_PAUSE = 1;
+  USER_CONTROL_KIND_STOP = 2;
+  USER_CONTROL_KIND_RESUME = 3;
+}
+
+message DeviceCondition {
+  string device_id = 1;
+  DeviceConditionKind kind = 2;
+}
+
+enum DeviceConditionKind {
+  DEVICE_CONDITION_KIND_UNSPECIFIED = 0;
+  DEVICE_CONDITION_KIND_CONNECTED = 1;
+  DEVICE_CONDITION_KIND_DISCONNECTED = 2;
+  DEVICE_CONDITION_KIND_DEGRADED = 3;
+}

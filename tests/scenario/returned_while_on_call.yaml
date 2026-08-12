@@ -1,0 +1,18 @@
+name: returned_while_on_call
+timeline:
+  - at: 0s
+    observation: person_presence
+    present: false
+  - at: 44m
+    observation: user_busy
+    busy: true
+    reason: ON_CALL
+  - at: 45m
+    observation: person_presence
+    present: true
+expect:
+  decisions:
+    - SILENT
+  reason_codes:
+    - USER_ON_CALL
+  actions: []

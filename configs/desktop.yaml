@@ -1,0 +1,11 @@
+schema_version: v1
+extends: base.yaml
+adapter:
+  embodiment: desktop-avatar
+  storage: sqlite
+capabilities:
+  attend_user: true
+  acknowledge: true
+  speak: true
+  express: true
+  locomotion: false
