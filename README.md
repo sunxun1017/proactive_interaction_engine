@@ -33,7 +33,7 @@ go run ./cmd/simulator -timeout
 
 `-reply` 使用 Fake Clock 演示用户在响应窗口内回复后记录 `ACCEPTED`；`-reject` 演示 `StopAll`、`REJECTED` 与 30 分钟冷却（P0 抢占顺序由 Runner 集成测试验证）；`-timeout` 精确推进到响应截止时刻，记录 `NO_RESPONSE`、进入 5 分钟冷却并执行 `RETURN_IDLE`。
 
-Stage B 的无硬件产品雏形已完成：上述五条路径均可通过 Fake Embodiment、Fake Clock 和内存审计在本机执行。Stage C 的 PC 摄像头输入、VAD、avatar 和 TTS 适配器尚未实现；当前模拟器不伪装这些外部能力。核心目前仍只支持欢迎计划中专用的 `WaitEvent(user.reply)` continuation，不是通用工作流执行器。
+Stage B 的无硬件产品雏形已完成：上述五条路径均可通过 Fake Embodiment、Fake Clock 和内存审计在本机执行。Stage C 正在建设强类型能力平台及 PC Adapter，范围包含摄像头、免按键 VAD、avatar、TTS，以及可按场景启用的人脸和声纹身份能力；当前模拟器不伪装这些外部能力。核心目前仍只支持欢迎计划中专用的 `WaitEvent(user.reply)` continuation，不是通用工作流执行器。
 
 ## 目录
 
@@ -50,4 +50,4 @@ tests/                架构、场景、契约与回放测试
 .agents/skills/       随仓库版本化的 Agent 约束
 ```
 
-详细边界见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+完整产品需求见 [docs/PRODUCT_REQUIREMENTS.md](docs/PRODUCT_REQUIREMENTS.md)，详细边界见 [ARCHITECTURE.md](ARCHITECTURE.md) 和 [ADR 0002](docs/adr/0002-compose-scenarios-from-capabilities.md)。

@@ -18,6 +18,8 @@ Proactive Interaction Engine 只负责：观察事实、编译语义事件、维
 8. 跨进程使用 Protobuf/gRPC；进程内使用 Go 领域类型；边界显式映射。
 9. 每个动作包含 ID、交互 ID、截止时间、抢占策略、所需能力和幂等语义。
 10. 不支持的能力永远不能出现在 BehaviorPlan 或 ActionCommand 中。
+11. 场景只组合已注册、健康、获授权且协议兼容的强类型能力；能力缺失和冲突按显式 fallback 降级。
+12. 生物识别 Worker 只输出候选，身份必须经 Identity Resolver；原始媒体、embedding 和模板不得进入核心或语义审计。
 
 ## Dependency Direction
 
@@ -112,9 +114,13 @@ Application Engine 持有当前专用 continuation，并只向 Runner 暴露不�
 
 Stage B 无硬件产品雏形已可通过 Fake Embodiment、Fake Clock、内存审计和五条模拟场景执行。Stage C 的 PC 摄像头、VAD、avatar 与 TTS 均属于尚未实现的外部适配器。
 
-Stage C 首版的隐私与平台约束已经确定：摄像头与麦克风首次使用必须显式启用并持续显示采集状态；原始帧与 PCM 只在有界内存中短暂处理，不录制、不转写、不进入审计或持久化；摄像头只判断是否有人，不做人脸识别或身份推断；单用户 PC 模式把检测到的人视为当前用户。控制界面只监听 loopback，首版支持 Ubuntu Linux，本地语音输出使用 Speech Dispatcher。摄像头、麦克风、UI 或 TTS 失效时必须独立降级，不能阻塞 P0 拒绝和核心静默路径。
+Stage C 已扩展为能力平台。Provider 声明稳定 ID、协议/实现版本、强类型能力、健康、隐私等级、延迟和取消语义；版本化场景声明 required、optional、选定 Provider、最低身份保证和确定性 fallback。首版采用显式部署配置，不实现任意动态插件或运行中热卸载。
 
-暂不引入 Kafka、Kubernetes、微服务拆分、动态插件、万能事件总线、完整 Event Sourcing、工作流平台、向量数据库实时依赖、LLM 总控制器或 ROS 领域类型。
+摄像头、麦克风及每项生物识别能力必须分别授权并持续显示状态。生物识别默认关闭，逐用户注册，本地提取并加密保存模板，原始注册媒体提取后立即丢弃。Face identification、speaker identification、speaker verification、liveness、VAD 和 ASR 是不同能力。Worker 只输出身份候选，Identity Resolver 负责阈值、融合和冲突；不确定、多人歧义或人脸/声纹冲突时回退匿名，不能加载私有记忆，也不能将生物识别用于安全认证。
+
+原始帧、PCM、裁剪、embedding、声纹向量、Tensor 和生物模板只存在于受控 Worker 或专用加密存储，不进入 Engine、语义审计或通用契约。控制界面只监听 loopback，首个运行平台为 Ubuntu Linux，本地语音输出使用 Speech Dispatcher。摄像头、麦克风、身份、UI 或 TTS 失效时必须独立降级，不能阻塞 P0 拒绝和核心静默路径。详细产品定义见 `docs/PRODUCT_REQUIREMENTS.md`，边界决策见 ADR 0002。
+
+暂不引入 Kafka、Kubernetes、微服务拆分、任意动态插件、万能事件总线、完整 Event Sourcing、工作流平台、向量数据库实时依赖、LLM 总控制器或 ROS 领域类型。
 
 ## Change Policy
 
