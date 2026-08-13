@@ -1,10 +1,11 @@
 /bin/
 /coverage.out
 /dist/
-/gen/
 *.db
 *.db-shm
 *.db-wal
+__pycache__/
+*.py[cod]
 .DS_Store
 .idea/
 .vscode/

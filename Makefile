@@ -1,7 +1,7 @@
 GO ?= go
 BUF ?= buf
 
-.PHONY: fmt fmt-check vet test race architecture proto staticcheck check simulator conformance docker-check
+.PHONY: fmt fmt-check vet test race architecture proto proto-generate proto-check staticcheck check simulator conformance docker-check
 
 fmt:
 	gofmt -w $$(find . -type f -name '*.go' -not -path './gen/*')
@@ -23,6 +23,12 @@ architecture:
 
 proto:
 	$(BUF) lint
+
+proto-generate:
+	$(BUF) generate
+
+proto-check: proto proto-generate
+	git diff --exit-code -- gen
 
 staticcheck:
 	staticcheck ./...

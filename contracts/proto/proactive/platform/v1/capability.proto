@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+package proactive.platform.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "proactive-interaction-engine/gen/go/proactive/platform/v1;platformv1";
+
+// CapabilityProviderRegistryService maintains leases for explicitly deployed
+// capability providers. Registration does not dynamically load provider code.
+service CapabilityProviderRegistryService {
+  rpc RegisterCapabilityProvider(RegisterCapabilityProviderRequest) returns (RegisterCapabilityProviderResponse);
+  rpc HeartbeatCapabilityProvider(HeartbeatCapabilityProviderRequest) returns (HeartbeatCapabilityProviderResponse);
+  rpc UnregisterCapabilityProvider(UnregisterCapabilityProviderRequest) returns (UnregisterCapabilityProviderResponse);
+}
+
+// ServiceCapabilityKind is the stable cross-process capability catalog. It is
+// distinct from embodiment action support advertised by adapter.proto.
+enum ServiceCapabilityKind {
+  SERVICE_CAPABILITY_KIND_UNSPECIFIED = 0;
+  SERVICE_CAPABILITY_KIND_PERSON_PRESENCE = 1;
+  SERVICE_CAPABILITY_KIND_FACE_DETECTION = 2;
+  SERVICE_CAPABILITY_KIND_FACE_IDENTIFICATION = 3;
+  SERVICE_CAPABILITY_KIND_FACE_LIVENESS = 4;
+  SERVICE_CAPABILITY_KIND_VOICE_ACTIVITY = 5;
+  SERVICE_CAPABILITY_KIND_SPEAKER_IDENTIFICATION = 6;
+  SERVICE_CAPABILITY_KIND_SPEAKER_VERIFICATION = 7;
+  SERVICE_CAPABILITY_KIND_SPEECH_TRANSCRIPTION = 8;
+  SERVICE_CAPABILITY_KIND_ATTENTION_ESTIMATION = 9;
+  SERVICE_CAPABILITY_KIND_BUSY_STATE = 10;
+  SERVICE_CAPABILITY_KIND_GESTURE_DETECTION = 11;
+  SERVICE_CAPABILITY_KIND_DEVICE_STATE = 12;
+  SERVICE_CAPABILITY_KIND_DISPLAY_TEXT = 13;
+  SERVICE_CAPABILITY_KIND_AVATAR_ATTEND = 14;
+  SERVICE_CAPABILITY_KIND_AVATAR_EXPRESSION = 15;
+  SERVICE_CAPABILITY_KIND_SPEECH_SYNTHESIS = 16;
+  SERVICE_CAPABILITY_KIND_GESTURE = 17;
+  SERVICE_CAPABILITY_KIND_LIGHT = 18;
+  SERVICE_CAPABILITY_KIND_LOCOMOTION = 19;
+}
+
+enum ProviderHealthState {
+  PROVIDER_HEALTH_STATE_UNSPECIFIED = 0;
+  PROVIDER_HEALTH_STATE_HEALTHY = 1;
+  reserved 2;
+  PROVIDER_HEALTH_STATE_UNHEALTHY = 3;
+}
+
+// ProviderHealthReason is a stable machine-readable reason. Human-readable
+// diagnostics belong in logs and telemetry, not registry control flow. HEALTHY
+// must pair with NONE; UNHEALTHY must pair with a non-NONE reason. Boundary
+// mappers must fail closed on unspecified or mismatched state/reason pairs.
+enum ProviderHealthReason {
+  PROVIDER_HEALTH_REASON_UNSPECIFIED = 0;
+  PROVIDER_HEALTH_REASON_NONE = 1;
+  PROVIDER_HEALTH_REASON_STARTING = 2;
+  PROVIDER_HEALTH_REASON_DEVICE_UNAVAILABLE = 3;
+  PROVIDER_HEALTH_REASON_PERMISSION_DENIED = 4;
+  PROVIDER_HEALTH_REASON_DEPENDENCY_UNAVAILABLE = 5;
+  PROVIDER_HEALTH_REASON_MODEL_UNAVAILABLE = 6;
+  PROVIDER_HEALTH_REASON_INTERNAL_ERROR = 7;
+  PROVIDER_HEALTH_REASON_SHUTTING_DOWN = 8;
+}
+
+message RegisterCapabilityProviderRequest {
+  string provider_id = 1;
+  string instance_id = 2;
+  string protocol_version = 3;
+  string implementation_version = 4;
+  // Entries must be non-UNSPECIFIED and unique.
+  repeated ServiceCapabilityKind capabilities = 5;
+  ProviderHealthState health = 6;
+  ProviderHealthReason health_reason = 7;
+}
+
+message RegisterCapabilityProviderResponse {
+  // lease_id and expires_at are issued by the registry service.
+  string lease_id = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message HeartbeatCapabilityProviderRequest {
+  string lease_id = 1;
+  ProviderHealthState health = 2;
+  ProviderHealthReason health_reason = 3;
+}
+
+message HeartbeatCapabilityProviderResponse {
+  // expires_at replaces the preceding expiry for this lease.
+  google.protobuf.Timestamp expires_at = 1;
+}
+
+message UnregisterCapabilityProviderRequest {
+  string lease_id = 1;
+}
+
+message UnregisterCapabilityProviderResponse {}
