@@ -71,7 +71,9 @@ Observation
 - ActionCommand：输出适配器可接受、拒绝、取消或超时的命令。
 - Outcome：一次 InteractionEpisode 的用户反馈结果。
 
-`UserReply` 是 PC 输入边界在应用层响应窗口开放时提交的规范化 Observation。首版完全免按键：`[opened_at, deadline)` 内检测到任意人声即视为用户回应；窗口外人声不能生成 `UserReply`。响应窗口本身提供对话指向上下文，VAD worker 不读取行为树、Episode、Outcome 或 Wakeup token。核心不接收原始 PCM、转写文本、回复内容、VAD 分数或识别启发式，只把该 Observation 编译为 `USER_REPLIED` 事实；用户回复不是 ControlCommand。
+`UserReply` 是可信 PC 输入边界在应用层响应窗口开放时构造的规范化 Observation。首版完全免按键：`[opened_at, deadline)` 内检测到任意人声即视为用户回应；窗口外人声不能生成 `UserReply`。响应窗口是唯一对话指向信号，Ingress 忽略已弃用且不可信的 `addressing_agent` 并把接受的人声置信度规范化为 1；VAD worker 不读取行为树、Episode、Outcome 或 Wakeup token。核心不接收原始 PCM、转写文本、回复内容、VAD 分数或识别启发式，只把该 Observation 编译为 `USER_REPLIED` 事实；用户回复不是 ControlCommand。
+
+跨进程 Worker 发布 Observation 时必须携带 Registry 服务端签发的 lease。Ingress 使用服务端注入时钟验证 lease 存在、Provider 健康且 `now < lease_expires_at`，并核对 `source_id` 对应注册 instance、Provider 已声明该强类型能力，且当前场景为该能力显式选择了同一 Provider。首版 gRPC Ingress 只接收 `PersonPresence`、`UserBusy` 和 `SpeechActivity`；直接发布 `UserReply`、`UserControl`、`QuietMode` 或 `DeviceCondition` 均 fail closed。Handler 只能经 `Runner.SubmitObservation` 进入单写者链路，禁止直接调用 `Engine.Process`。
 
 ## Runtime and Degradation
 
@@ -112,7 +114,7 @@ Application Engine 持有当前专用 continuation，并只向 Runner 暴露不�
 
 当前只支持根 Sequence 中唯一的 `WaitEvent(user.reply)` 专用 continuation，由 Application Engine 持有；Runner 仅调度不透明 Wakeup，不解释行为树或 Episode 语义。回复后动作的 deadline 在实际下发时生成。通用 `WaitEvent`、行为树 cursor 和工作流执行器仍未实现。
 
-Stage B 无硬件产品雏形已可通过 Fake Embodiment、Fake Clock、内存审计和五条模拟场景执行。Stage C 的 PC 摄像头、VAD、avatar 与 TTS 均属于尚未实现的外部适配器。
+Stage B 无硬件产品雏形已可通过 Fake Embodiment、Fake Clock、内存审计和五条模拟场景执行。Stage C1 的强类型能力契约、Provider Registry、场景 manifest 与校验已完成；Stage C2 的 fake-media gRPC Ingress 纵向测试已连通 Registry、Runner 和 Engine。真实 PC 摄像头/VAD worker、Web avatar、TTS 和控制界面仍未实现。
 
 Stage C 已扩展为能力平台。Provider 声明稳定 ID、协议/实现版本、强类型能力、健康、隐私等级、延迟和取消语义；版本化场景声明 required、optional、选定 Provider、最低身份保证和确定性 fallback。首版采用显式部署配置，不实现任意动态插件或运行中热卸载。
 

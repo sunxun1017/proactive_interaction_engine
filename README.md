@@ -10,9 +10,11 @@
 - Fake Embodiment、Fake Clock、内存审计记录器
 - 单写者 Runner、有界 Observation/Control 队列和 P0 `StopAll` 抢占
 - 显式用户拒绝的 `REJECTED` Outcome、30 分钟单用户冷却与确定性硬守卫
-- 由输入适配器确认的 `UserReply`、`ACCEPTED` Outcome 与回复后行为续接
+- 可信 Ingress 在响应窗口内构造的 `UserReply`、`ACCEPTED` Outcome 与回复后行为续接
 - 响应窗口到期后的 `NO_RESPONSE` Outcome、5 分钟单用户冷却与自动 `RETURN_IDLE`
 - 欢迎、保持静默、用户回复、显式拒绝和无响应五条模拟场景
+- 强类型能力契约、Provider Registry、严格场景 manifest 与显式 Provider 选择
+- 带 Provider lease 校验的 gRPC Ingress fake-media 纵向闭环
 - Protobuf 外部契约、行为与配置样例、架构依赖测试
 - 仓库级 Agent Skill 与 Git/CI 约束
 
@@ -33,7 +35,15 @@ go run ./cmd/simulator -timeout
 
 `-reply` 使用 Fake Clock 演示用户在响应窗口内回复后记录 `ACCEPTED`；`-reject` 演示 `StopAll`、`REJECTED` 与 30 分钟冷却（P0 抢占顺序由 Runner 集成测试验证）；`-timeout` 精确推进到响应截止时刻，记录 `NO_RESPONSE`、进入 5 分钟冷却并执行 `RETURN_IDLE`。
 
-Stage B 的无硬件产品雏形已完成：上述五条路径均可通过 Fake Embodiment、Fake Clock 和内存审计在本机执行。Stage C 正在建设强类型能力平台及 PC Adapter，范围包含摄像头、免按键 VAD、avatar、TTS，以及可按场景启用的人脸和声纹身份能力；当前模拟器不伪装这些外部能力。核心目前仍只支持欢迎计划中专用的 `WaitEvent(user.reply)` continuation，不是通用工作流执行器。
+Stage B 的无硬件产品雏形已完成：上述五条路径均可通过 Fake Embodiment、Fake Clock 和内存审计在本机执行。Stage C1 已完成强类型能力契约、Provider Registry 和首个版本化场景 manifest；Stage C2 已用 fake-media gRPC 测试连通 Registry、Ingress、Runner 与 Engine。真实摄像头/VAD worker、Web avatar、Speech Dispatcher TTS、控制界面和生物识别仍待实现，当前模拟器不伪装这些外部能力。核心目前仍只支持欢迎计划中专用的 `WaitEvent(user.reply)` continuation，不是通用工作流执行器。
+
+相关增量验证：
+
+```bash
+go test ./adapters/capability/registry ./adapters/config/scenario ./adapters/input/ingress
+go test -race ./adapters/input/ingress
+go test ./tests/architecture
+```
 
 ## 目录
 

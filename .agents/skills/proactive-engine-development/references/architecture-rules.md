@@ -70,11 +70,13 @@ Never allow a model to move a robot, enable sensors, contact a person, change a 
 
 ## Adapter Contract
 
-Input adapters prove registration, heartbeat, monotonic sequence, deduplication, TTL, reconnect, confidence validation, and protocol version handling.
+Input adapters prove registration, heartbeat, monotonic sequence, deduplication, TTL, reconnect, confidence validation, and protocol version handling. Every cross-process publish carries the Registry server-issued lease; Ingress uses its injected server clock to require an existing healthy lease with `now < lease_expires_at`, match `source_id` to the registered instance, confirm the declared capability, and require the active scenario to select that exact Provider. It never chooses a Provider automatically.
 
-For the approved hands-free PC flow, the application-owned response window supplies the conversational direction signal: any local VAD-positive human speech in `[opened_at, deadline)` may become canonical `UserReply`, without a button or content recognition. A boundary component must gate this mapping against an authoritative read-only window signal; the VAD worker must not interpret behavior nodes, Episode state, Outcome state, or wakeup tokens. Speech outside the window is discarded as adapter-local signal and must not become `UserReply`.
+For the approved hands-free PC flow, the application-owned response window supplies the only conversational direction signal: any local VAD-positive human speech in `[opened_at, deadline)` may become canonical `UserReply`, without a button or content recognition. Ingress ignores the deprecated and untrusted worker `addressing_agent` field and normalizes an accepted reply confidence to 1. The VAD worker must not interpret behavior nodes, Episode state, Outcome state, or wakeup tokens. Speech outside the window is discarded as adapter-local signal and must not become `UserReply`.
 
 The core treats `UserReply` as a strongly typed observation and compiles a `USER_REPLIED` fact. Raw PCM, transcripts, reply content, VAD scores, audio buffers, and adapter-specific detection evidence never cross into the core, semantic audit, or durable storage. User reply is ordinary semantic input, never a P0 control command.
+
+The initial gRPC ingress accepts only `PersonPresence`, `UserBusy`, and `SpeechActivity`. Direct `UserReply`, `UserControl`, `QuietMode`, and `DeviceCondition` publishes fail closed. Its only application mutation path is `Runner.SubmitObservation`; calling `Engine.Process` from a transport handler would bypass queue priority and single-writer ownership.
 
 The current application supports only the direct root-Sequence `WaitEvent(user.reply, 8s)` continuation. The duration comes from the behavior plan and is not a global Engine timeout. Start the Episode before dispatch so P0 rejection can target it; after the pre-wait actions finish, open the response window and keep the continuation in the application layer. Accept replies only in `[opened_at, deadline)`, record `ACCEPTED/USER_REPLIED`, and materialize post-wait action deadlines at actual dispatch time.
 
