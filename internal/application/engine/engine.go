@@ -25,6 +25,7 @@ type Engine struct {
 	projector    *state.Projector
 	episodes     *episode.Tracker
 	pendingReply *pendingReplyContinuation
+	replyWindow  replyAcceptanceWindowStore
 	policy       decision.Policy
 	planner      behavior.Planner
 	driver       port.ActionDriver
@@ -184,6 +185,11 @@ func (e *Engine) Process(ctx context.Context, input observation.Observation) (Re
 			wakeup:        wakeup,
 			after:         phases.After,
 		}
+		e.replyWindow.publish(ReplyAcceptanceWindow{
+			SubjectID: semanticEvent.SubjectID,
+			OpenedAt:  openedAt,
+			Deadline:  wakeup.Deadline,
+		})
 	}
 	return result, nil
 }
@@ -233,6 +239,7 @@ func (e *Engine) AdvanceAt(ctx context.Context, wakeup Wakeup) (Result, error) {
 		return Result{}, fmt.Errorf("project response window expiration %s: %w", expired.ID, err)
 	}
 	e.pendingReply = nil
+	e.replyWindow.clear()
 
 	result := Result{
 		Events:   []event.SemanticEvent{expired},
@@ -304,6 +311,7 @@ func (e *Engine) acceptUserReply(ctx context.Context, result *Result, input even
 		return nil, nil
 	}
 	e.pendingReply = nil
+	e.replyWindow.clear()
 	result.Outcomes = append(result.Outcomes, *outcome)
 	e.bestEffortAudit(result, func(auditCtx context.Context) error {
 		return e.recorder.RecordOutcome(auditCtx, *outcome)
@@ -395,6 +403,7 @@ func (e *Engine) CommitUserRejection(ctx context.Context, command control.Comman
 	}
 	if outcome != nil && e.pendingReply != nil && outcome.InteractionID == e.pendingReply.interactionID {
 		e.pendingReply = nil
+		e.replyWindow.clear()
 	}
 	e.bestEffortControlAudit(func(auditCtx context.Context) error {
 		return e.recorder.RecordEvent(auditCtx, feedback)

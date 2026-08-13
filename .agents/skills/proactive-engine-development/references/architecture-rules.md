@@ -72,7 +72,9 @@ Never allow a model to move a robot, enable sensors, contact a person, change a 
 
 Input adapters prove registration, heartbeat, monotonic sequence, deduplication, TTL, reconnect, confidence validation, and protocol version handling.
 
-An input adapter may emit canonical `UserReply` only after it has determined that the signal is directed at the agent. The core treats it as a strongly typed observation and compiles a `USER_REPLIED` fact; it does not ingest raw audio, transcripts, reply content, or adapter-specific detection evidence. User reply is ordinary semantic input, never a P0 control command.
+For the approved hands-free PC flow, the application-owned response window supplies the conversational direction signal: any local VAD-positive human speech in `[opened_at, deadline)` may become canonical `UserReply`, without a button or content recognition. A boundary component must gate this mapping against an authoritative read-only window signal; the VAD worker must not interpret behavior nodes, Episode state, Outcome state, or wakeup tokens. Speech outside the window is discarded as adapter-local signal and must not become `UserReply`.
+
+The core treats `UserReply` as a strongly typed observation and compiles a `USER_REPLIED` fact. Raw PCM, transcripts, reply content, VAD scores, audio buffers, and adapter-specific detection evidence never cross into the core, semantic audit, or durable storage. User reply is ordinary semantic input, never a P0 control command.
 
 The current application supports only the direct root-Sequence `WaitEvent(user.reply, 8s)` continuation. The duration comes from the behavior plan and is not a global Engine timeout. Start the Episode before dispatch so P0 rejection can target it; after the pre-wait actions finish, open the response window and keep the continuation in the application layer. Accept replies only in `[opened_at, deadline)`, record `ACCEPTED/USER_REPLIED`, and materialize post-wait action deadlines at actual dispatch time.
 
@@ -81,6 +83,8 @@ Application exposes the specialized deadline only as an opaque `Wakeup{Token, De
 At the exact response deadline, application emits a deterministic `RESPONSE_WINDOW_EXPIRED` fact whose occurred-at time is the deadline, completes the Episode as `NO_RESPONSE/RESPONSE_WINDOW_ELAPSED`, and projects the independent subject-local no-response cooldown. The default is 5 minutes and remains configurable. Commit the event, outcome, cooldown, and pending-continuation removal before audit and post-wait `RETURN_IDLE`; audit failure only adds a warning, and action failure does not roll back committed facts.
 
 Output adapters prove capability declaration, unsupported-action rejection, action-ID idempotency, cancellation, deadline enforcement, ordered status transitions, safe disconnect, and lease expiry.
+
+PC media adapters require explicit first-use enablement and an always-visible capture indicator. The initial single-user mode treats any detected person as the current subject, performs no face recognition or identity inference, and retains no raw camera frame or audio sample. Camera and microphone failures degrade independently. The desktop control surface binds only to loopback, and local TTS uses Speech Dispatcher for the first Ubuntu Linux prototype.
 
 Explicit `USER_REJECTED` control follows two phases. The concurrent P0 phase cancels the active processing context and calls `ActionDriver.StopAll`; it must not mutate `WorldState` or Episode state. After the active processing goroutine is joined, the Runner serially commits the rejection semantic event, ends the matching Episode with a `REJECTED` Outcome, and projects the subject-local cooldown. The default explicit-rejection cooldown is 30 minutes and remains configuration-driven. Commit the user fact even when `StopAll` fails. Shutdown cancellation never creates a rejection.
 

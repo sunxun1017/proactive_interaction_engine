@@ -69,7 +69,7 @@ Observation
 - ActionCommand：输出适配器可接受、拒绝、取消或超时的命令。
 - Outcome：一次 InteractionEpisode 的用户反馈结果。
 
-`UserReply` 是输入适配器已确认“用户正在回应智能体”后提交的规范化 Observation。核心不接收原始音频、转写文本、回复内容或识别启发式，只把该 Observation 编译为 `USER_REPLIED` 事实；用户回复不是 ControlCommand。
+`UserReply` 是 PC 输入边界在应用层响应窗口开放时提交的规范化 Observation。首版完全免按键：`[opened_at, deadline)` 内检测到任意人声即视为用户回应；窗口外人声不能生成 `UserReply`。响应窗口本身提供对话指向上下文，VAD worker 不读取行为树、Episode、Outcome 或 Wakeup token。核心不接收原始 PCM、转写文本、回复内容、VAD 分数或识别启发式，只把该 Observation 编译为 `USER_REPLIED` 事实；用户回复不是 ControlCommand。
 
 ## Runtime and Degradation
 
@@ -111,6 +111,8 @@ Application Engine 持有当前专用 continuation，并只向 Runner 暴露不�
 当前只支持根 Sequence 中唯一的 `WaitEvent(user.reply)` 专用 continuation，由 Application Engine 持有；Runner 仅调度不透明 Wakeup，不解释行为树或 Episode 语义。回复后动作的 deadline 在实际下发时生成。通用 `WaitEvent`、行为树 cursor 和工作流执行器仍未实现。
 
 Stage B 无硬件产品雏形已可通过 Fake Embodiment、Fake Clock、内存审计和五条模拟场景执行。Stage C 的 PC 摄像头、VAD、avatar 与 TTS 均属于尚未实现的外部适配器。
+
+Stage C 首版的隐私与平台约束已经确定：摄像头与麦克风首次使用必须显式启用并持续显示采集状态；原始帧与 PCM 只在有界内存中短暂处理，不录制、不转写、不进入审计或持久化；摄像头只判断是否有人，不做人脸识别或身份推断；单用户 PC 模式把检测到的人视为当前用户。控制界面只监听 loopback，首版支持 Ubuntu Linux，本地语音输出使用 Speech Dispatcher。摄像头、麦克风、UI 或 TTS 失效时必须独立降级，不能阻塞 P0 拒绝和核心静默路径。
 
 暂不引入 Kafka、Kubernetes、微服务拆分、动态插件、万能事件总线、完整 Event Sourcing、工作流平台、向量数据库实时依赖、LLM 总控制器或 ROS 领域类型。
 
