@@ -32,6 +32,51 @@ func TestEvaluateAtReadyWithExplicitHealthyProvider(t *testing.T) {
 	}
 }
 
+func TestValidateScenarioNeedsOnlyTheDeclaration(t *testing.T) {
+	valid := []ScenarioRequirements{
+		{
+			ID:       "required-only",
+			Required: []CapabilityRequirement{{Kind: PersonPresence, ProviderID: "camera"}},
+		},
+	}
+	for _, optional := range legalOptionalCapabilities() {
+		valid = append(valid, ScenarioRequirements{
+			ID: "optional-" + string(optional.capability),
+			Optional: []OptionalCapability{{
+				Kind: optional.capability, ProviderID: "selected", Fallback: optional.fallback,
+			}},
+		})
+	}
+	for _, scenario := range valid {
+		if err := ValidateScenario(scenario); err != nil {
+			t.Fatalf("ValidateScenario(%q) error = %v", scenario.ID, err)
+		}
+	}
+
+	invalid := []struct {
+		name     string
+		scenario ScenarioRequirements
+	}{
+		{name: "empty id", scenario: ScenarioRequirements{Required: []CapabilityRequirement{{Kind: PersonPresence, ProviderID: "camera"}}}},
+		{name: "no capabilities", scenario: ScenarioRequirements{ID: "empty"}},
+		{name: "duplicate required", scenario: ScenarioRequirements{ID: "duplicate", Required: []CapabilityRequirement{{Kind: PersonPresence, ProviderID: "camera"}, {Kind: PersonPresence, ProviderID: "camera"}}}},
+		{name: "duplicate optional", scenario: ScenarioRequirements{ID: "duplicate", Optional: []OptionalCapability{{Kind: VoiceActivity, ProviderID: "vad", Fallback: NoVoiceReply}, {Kind: VoiceActivity, ProviderID: "vad", Fallback: NoVoiceReply}}}},
+		{name: "required optional overlap", scenario: ScenarioRequirements{ID: "overlap", Required: []CapabilityRequirement{{Kind: VoiceActivity, ProviderID: "vad"}}, Optional: []OptionalCapability{{Kind: VoiceActivity, ProviderID: "vad", Fallback: NoVoiceReply}}}},
+		{name: "empty provider", scenario: ScenarioRequirements{ID: "provider", Required: []CapabilityRequirement{{Kind: PersonPresence}}}},
+		{name: "unknown capability", scenario: ScenarioRequirements{ID: "kind", Required: []CapabilityRequirement{{Kind: CapabilityKind("UNKNOWN"), ProviderID: "provider"}}}},
+		{name: "unsupported optional", scenario: ScenarioRequirements{ID: "optional", Optional: []OptionalCapability{{Kind: PersonPresence, ProviderID: "camera", Fallback: AnonymousSubject}}}},
+		{name: "mismatched fallback", scenario: ScenarioRequirements{ID: "fallback", Optional: []OptionalCapability{{Kind: SpeechSynthesis, ProviderID: "tts", Fallback: AudioOnly}}}},
+		{name: "unknown fallback", scenario: ScenarioRequirements{ID: "fallback", Optional: []OptionalCapability{{Kind: VoiceActivity, ProviderID: "vad", Fallback: Fallback("UNKNOWN")}}}},
+	}
+	for _, test := range invalid {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateScenario(test.scenario); !fault.IsCode(err, fault.InvalidInput) {
+				t.Fatalf("ValidateScenario() error = %v, want InvalidInput", err)
+			}
+		})
+	}
+}
+
 func TestEvaluateAtBlocksRequiredCapabilityFailuresWithStableCodes(t *testing.T) {
 	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -81,23 +126,8 @@ func TestEvaluateAtBlocksRequiredCapabilityFailuresWithStableCodes(t *testing.T)
 
 func TestEvaluateAtDegradesOptionalCapabilitiesOnlyWithDeclaredLegalFallback(t *testing.T) {
 	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
-	legal := []struct {
-		capability CapabilityKind
-		fallback   Fallback
-	}{
-		{FaceIdentification, AnonymousSubject},
-		{FaceLiveness, AnonymousSubject},
-		{SpeakerIdentification, AnonymousSubject},
-		{SpeakerVerification, AnonymousSubject},
-		{VoiceActivity, NoVoiceReply},
-		{SpeechTranscription, NoTranscript},
-		{SpeechSynthesis, VisualOnly},
-		{DisplayText, AudioOnly},
-		{AvatarAttend, AudioOnly},
-		{AvatarExpression, AudioOnly},
-	}
 
-	for _, test := range legal {
+	for _, test := range legalOptionalCapabilities() {
 		t.Run(string(test.capability), func(t *testing.T) {
 			scenario := ScenarioRequirements{
 				ID: "optional-degradation",
@@ -483,5 +513,26 @@ func biometricAccess(capability CapabilityKind) BiometricPolicySnapshot {
 		}
 	default:
 		return BiometricPolicySnapshot{}
+	}
+}
+
+func legalOptionalCapabilities() []struct {
+	capability CapabilityKind
+	fallback   Fallback
+} {
+	return []struct {
+		capability CapabilityKind
+		fallback   Fallback
+	}{
+		{FaceIdentification, AnonymousSubject},
+		{FaceLiveness, AnonymousSubject},
+		{SpeakerIdentification, AnonymousSubject},
+		{SpeakerVerification, AnonymousSubject},
+		{VoiceActivity, NoVoiceReply},
+		{SpeechTranscription, NoTranscript},
+		{SpeechSynthesis, VisualOnly},
+		{DisplayText, AudioOnly},
+		{AvatarAttend, AudioOnly},
+		{AvatarExpression, AudioOnly},
 	}
 }

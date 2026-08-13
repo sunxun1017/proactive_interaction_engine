@@ -13,7 +13,7 @@ const evaluateOp = "evaluate scenario readiness"
 // EvaluateAt validates the complete selection before deterministically
 // evaluating provider availability and biometric policy at now.
 func EvaluateAt(scenario ScenarioRequirements, providers []ProviderSnapshot, policy BiometricPolicySnapshot, now time.Time) (Activation, error) {
-	if err := validateScenario(scenario); err != nil {
+	if err := ValidateScenario(scenario); err != nil {
 		return Activation{}, err
 	}
 	providerByID, err := validateProviders(providers)
@@ -54,7 +54,9 @@ func EvaluateAt(scenario ScenarioRequirements, providers []ProviderSnapshot, pol
 	return Activation{Status: status, Issues: issues}, nil
 }
 
-func validateScenario(scenario ScenarioRequirements) error {
+// ValidateScenario validates only the declarative capability selection. It
+// does not require provider, biometric policy, or time inputs.
+func ValidateScenario(scenario ScenarioRequirements) error {
 	if scenario.ID == "" {
 		return invalidInput("scenario id is required")
 	}
