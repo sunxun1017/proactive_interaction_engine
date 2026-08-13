@@ -116,7 +116,7 @@ Stage B 无硬件产品雏形已可通过 Fake Embodiment、Fake Clock、内存�
 
 Stage C 已扩展为能力平台。Provider 声明稳定 ID、协议/实现版本、强类型能力、健康、隐私等级、延迟和取消语义；版本化场景声明 required、optional、选定 Provider、最低身份保证和确定性 fallback。首版采用显式部署配置，不实现任意动态插件或运行中热卸载。
 
-摄像头、麦克风及每项生物识别能力必须分别授权并持续显示状态。生物识别默认关闭，逐用户注册，本地提取并加密保存模板，原始注册媒体提取后立即丢弃。Face identification、speaker identification、speaker verification、liveness、VAD 和 ASR 是不同能力。Worker 只输出身份候选，Identity Resolver 负责阈值、融合和冲突；不确定、多人歧义或人脸/声纹冲突时回退匿名，不能加载私有记忆，也不能将生物识别用于安全认证。
+摄像头、麦克风及每项生物识别能力必须分别授权并持续显示状态。生物识别默认关闭；face detection 和 liveness 只需功能授权，face identification、speaker identification 与 speaker verification 还需逐用户注册。本地提取并加密保存模板，原始注册媒体提取后立即丢弃。VAD 和 ASR 仍是独立能力。Worker 只输出身份候选，Identity Resolver 负责阈值、融合和冲突；不确定、多人歧义或人脸/声纹冲突时回退匿名，不能加载私有记忆，也不能将生物识别用于安全认证。
 
 原始帧、PCM、裁剪、embedding、声纹向量、Tensor 和生物模板只存在于受控 Worker 或专用加密存储，不进入 Engine、语义审计或通用契约。控制界面只监听 loopback，首个运行平台为 Ubuntu Linux，本地语音输出使用 Speech Dispatcher。摄像头、麦克风、身份、UI 或 TTS 失效时必须独立降级，不能阻塞 P0 拒绝和核心静默路径。详细产品定义见 `docs/PRODUCT_REQUIREMENTS.md`，边界决策见 ADR 0002。
 
