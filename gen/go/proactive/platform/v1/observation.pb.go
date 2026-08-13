@@ -542,9 +542,9 @@ func (x *QuietMode) GetEnabled() bool {
 	return false
 }
 
-// UserReply is present only after the adapter has confirmed that the user's
-// response is directed at the agent. Raw audio and transcript content stay out
-// of this contract.
+// UserReply is constructed only by the trusted input boundary while the
+// application response window is open. Workers must not publish it directly.
+// Raw audio and transcript content stay out of this contract.
 type UserReply struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -582,9 +582,15 @@ func (*UserReply) Descriptor() ([]byte, []int) {
 }
 
 type SpeechActivity struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Active          bool                   `protobuf:"varint,1,opt,name=active,proto3" json:"active,omitempty"`
-	AddressingAgent bool                   `protobuf:"varint,2,opt,name=addressing_agent,json=addressingAgent,proto3" json:"addressing_agent,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Workers publish only VAD-positive speech onset. false does not form
+	// canonical input at the trusted input boundary.
+	Active bool `protobuf:"varint,1,opt,name=active,proto3" json:"active,omitempty"`
+	// Deprecated: this untrusted worker assertion is ignored. Conversational
+	// direction comes only from the application-owned response window.
+	//
+	// Deprecated: Marked as deprecated in proactive/platform/v1/observation.proto.
+	AddressingAgent bool `protobuf:"varint,2,opt,name=addressing_agent,json=addressingAgent,proto3" json:"addressing_agent,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -626,6 +632,7 @@ func (x *SpeechActivity) GetActive() bool {
 	return false
 }
 
+// Deprecated: Marked as deprecated in proactive/platform/v1/observation.proto.
 func (x *SpeechActivity) GetAddressingAgent() bool {
 	if x != nil {
 		return x.AddressingAgent
@@ -765,10 +772,10 @@ const file_proactive_platform_v1_observation_proto_rawDesc = "" +
 	"\x06reason\x18\x02 \x01(\x0e2!.proactive.platform.v1.BusyReasonR\x06reason\"%\n" +
 	"\tQuietMode\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\"\v\n" +
-	"\tUserReply\"S\n" +
+	"\tUserReply\"W\n" +
 	"\x0eSpeechActivity\x12\x16\n" +
-	"\x06active\x18\x01 \x01(\bR\x06active\x12)\n" +
-	"\x10addressing_agent\x18\x02 \x01(\bR\x0faddressingAgent\"I\n" +
+	"\x06active\x18\x01 \x01(\bR\x06active\x12-\n" +
+	"\x10addressing_agent\x18\x02 \x01(\bB\x02\x18\x01R\x0faddressingAgent\"I\n" +
 	"\vUserControl\x12:\n" +
 	"\x04kind\x18\x01 \x01(\x0e2&.proactive.platform.v1.UserControlKindR\x04kind\"n\n" +
 	"\x0fDeviceCondition\x12\x1b\n" +

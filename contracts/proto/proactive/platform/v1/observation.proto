@@ -47,14 +47,18 @@ message QuietMode {
   bool enabled = 1;
 }
 
-// UserReply is present only after the adapter has confirmed that the user's
-// response is directed at the agent. Raw audio and transcript content stay out
-// of this contract.
+// UserReply is constructed only by the trusted input boundary while the
+// application response window is open. Workers must not publish it directly.
+// Raw audio and transcript content stay out of this contract.
 message UserReply {}
 
 message SpeechActivity {
+  // Workers publish only VAD-positive speech onset. false does not form
+  // canonical input at the trusted input boundary.
   bool active = 1;
-  bool addressing_agent = 2;
+  // Deprecated: this untrusted worker assertion is ignored. Conversational
+  // direction comes only from the application-owned response window.
+  bool addressing_agent = 2 [deprecated = true];
 }
 
 message UserControl {

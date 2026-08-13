@@ -77,10 +77,14 @@ func (ReceiptStatus) EnumDescriptor() ([]byte, []int) {
 }
 
 type PublishRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Observation   *ObservationEnvelope   `protobuf:"bytes,1,opt,name=observation,proto3" json:"observation,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Observation *ObservationEnvelope   `protobuf:"bytes,1,opt,name=observation,proto3" json:"observation,omitempty"`
+	// provider_lease_id is issued by CapabilityProviderRegistryService. The
+	// ingress validates that its provider instance is healthy, unexpired, and
+	// explicitly selected for the published observation capability.
+	ProviderLeaseId string `protobuf:"bytes,2,opt,name=provider_lease_id,json=providerLeaseId,proto3" json:"provider_lease_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PublishRequest) Reset() {
@@ -118,6 +122,13 @@ func (x *PublishRequest) GetObservation() *ObservationEnvelope {
 		return x.Observation
 	}
 	return nil
+}
+
+func (x *PublishRequest) GetProviderLeaseId() string {
+	if x != nil {
+		return x.ProviderLeaseId
+	}
+	return ""
 }
 
 type PublishResponse struct {
@@ -688,9 +699,10 @@ var File_proactive_platform_v1_adapter_proto protoreflect.FileDescriptor
 
 const file_proactive_platform_v1_adapter_proto_rawDesc = "" +
 	"\n" +
-	"#proactive/platform/v1/adapter.proto\x12\x15proactive.platform.v1\x1a\"proactive/platform/v1/action.proto\x1a'proactive/platform/v1/observation.proto\"^\n" +
+	"#proactive/platform/v1/adapter.proto\x12\x15proactive.platform.v1\x1a\"proactive/platform/v1/action.proto\x1a'proactive/platform/v1/observation.proto\"\x8a\x01\n" +
 	"\x0ePublishRequest\x12L\n" +
-	"\vobservation\x18\x01 \x01(\v2*.proactive.platform.v1.ObservationEnvelopeR\vobservation\"V\n" +
+	"\vobservation\x18\x01 \x01(\v2*.proactive.platform.v1.ObservationEnvelopeR\vobservation\x12*\n" +
+	"\x11provider_lease_id\x18\x02 \x01(\tR\x0fproviderLeaseId\"V\n" +
 	"\x0fPublishResponse\x12C\n" +
 	"\areceipt\x18\x01 \x01(\v2).proactive.platform.v1.ObservationReceiptR\areceipt\"\x9a\x01\n" +
 	"\x12ObservationReceipt\x12%\n" +

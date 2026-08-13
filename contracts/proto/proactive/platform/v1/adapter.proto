@@ -19,6 +19,10 @@ service EmbodimentAdapterService {
 
 message PublishRequest {
   ObservationEnvelope observation = 1;
+  // provider_lease_id is issued by CapabilityProviderRegistryService. The
+  // ingress validates that its provider instance is healthy, unexpired, and
+  // explicitly selected for the published observation capability.
+  string provider_lease_id = 2;
 }
 
 message PublishResponse {

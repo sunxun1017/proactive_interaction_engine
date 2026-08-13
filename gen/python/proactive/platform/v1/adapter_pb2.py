@@ -26,7 +26,7 @@ from proactive.platform.v1 import action_pb2 as proactive_dot_platform_dot_v1_do
 from proactive.platform.v1 import observation_pb2 as proactive_dot_platform_dot_v1_dot_observation__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n#proactive/platform/v1/adapter.proto\x12\x15proactive.platform.v1\x1a\"proactive/platform/v1/action.proto\x1a\'proactive/platform/v1/observation.proto\"^\n\x0ePublishRequest\x12L\n\x0bobservation\x18\x01 \x01(\x0b\x32*.proactive.platform.v1.ObservationEnvelopeR\x0bobservation\"V\n\x0fPublishResponse\x12\x43\n\x07receipt\x18\x01 \x01(\x0b\x32).proactive.platform.v1.ObservationReceiptR\x07receipt\"\x9a\x01\n\x12ObservationReceipt\x12%\n\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12<\n\x06status\x18\x02 \x01(\x0e\x32$.proactive.platform.v1.ReceiptStatusR\x06status\x12\x1f\n\x0breason_code\x18\x03 \x01(\tR\nreasonCode\"C\n\x16GetCapabilitiesRequest\x12)\n\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\"k\n\x17GetCapabilitiesResponse\x12P\n\x0c\x63\x61pabilities\x18\x01 \x01(\x0b\x32,.proactive.platform.v1.CapabilityDeclarationR\x0c\x63\x61pabilities\"\xeb\x01\n\x15\x43\x61pabilityDeclaration\x12\x1d\n\nadapter_id\x18\x01 \x01(\tR\tadapterId\x12)\n\x10protocol_version\x18\x02 \x01(\tR\x0fprotocolVersion\x12\x41\n\x07\x61\x63tions\x18\x03 \x03(\x0b\x32\'.proactive.platform.v1.ActionCapabilityR\x07\x61\x63tions\x12\x45\n\tresources\x18\x04 \x03(\x0b\x32\'.proactive.platform.v1.ResourceCapacityR\tresources\"\xa2\x01\n\x10\x41\x63tionCapability\x12\x1f\n\x0b\x61\x63tion_type\x18\x01 \x01(\tR\nactionType\x12\x1c\n\tsupported\x18\x02 \x01(\x08R\tsupported\x12$\n\rinterruptible\x18\x03 \x01(\x08R\rinterruptible\x12)\n\x10supported_values\x18\x04 \x03(\tR\x0fsupportedValues\"J\n\x10ResourceCapacity\x12\x1a\n\x08resource\x18\x01 \x01(\tR\x08resource\x12\x1a\n\x08\x63\x61pacity\x18\x02 \x01(\rR\x08\x63\x61pacity\"P\n\x0e\x45xecuteRequest\x12>\n\x07\x63ommand\x18\x01 \x01(\x0b\x32$.proactive.platform.v1.ActionCommandR\x07\x63ommand\"N\n\x0f\x45xecuteResponse\x12;\n\x06status\x18\x01 \x01(\x0b\x32#.proactive.platform.v1.ActionStatusR\x06status\"L\n\x0eStopAllRequest\x12\x1f\n\x0breason_code\x18\x01 \x01(\tR\nreasonCode\x12\x19\n\x08trace_id\x18\x02 \x01(\tR\x07traceId\"-\n\x0fStopAllResponse\x12\x1a\n\x08\x61\x63\x63\x65pted\x18\x01 \x01(\x08R\x08\x61\x63\x63\x65pted*\xa1\x01\n\rReceiptStatus\x12\x1e\n\x1aRECEIPT_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n\x17RECEIPT_STATUS_ACCEPTED\x10\x01\x12\x1c\n\x18RECEIPT_STATUS_DUPLICATE\x10\x02\x12\x18\n\x14RECEIPT_STATUS_STALE\x10\x03\x12\x1b\n\x17RECEIPT_STATUS_REJECTED\x10\x04\x32u\n\x19ObservationIngressService\x12X\n\x07Publish\x12%.proactive.platform.v1.PublishRequest\x1a&.proactive.platform.v1.PublishResponse2\xc2\x02\n\x18\x45mbodimentAdapterService\x12p\n\x0fGetCapabilities\x12-.proactive.platform.v1.GetCapabilitiesRequest\x1a..proactive.platform.v1.GetCapabilitiesResponse\x12Z\n\x07\x45xecute\x12%.proactive.platform.v1.ExecuteRequest\x1a&.proactive.platform.v1.ExecuteResponse0\x01\x12X\n\x07StopAll\x12%.proactive.platform.v1.StopAllRequest\x1a&.proactive.platform.v1.StopAllResponseBFZDproactive-interaction-engine/gen/go/proactive/platform/v1;platformv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n#proactive/platform/v1/adapter.proto\x12\x15proactive.platform.v1\x1a\"proactive/platform/v1/action.proto\x1a\'proactive/platform/v1/observation.proto\"\x8a\x01\n\x0ePublishRequest\x12L\n\x0bobservation\x18\x01 \x01(\x0b\x32*.proactive.platform.v1.ObservationEnvelopeR\x0bobservation\x12*\n\x11provider_lease_id\x18\x02 \x01(\tR\x0fproviderLeaseId\"V\n\x0fPublishResponse\x12\x43\n\x07receipt\x18\x01 \x01(\x0b\x32).proactive.platform.v1.ObservationReceiptR\x07receipt\"\x9a\x01\n\x12ObservationReceipt\x12%\n\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12<\n\x06status\x18\x02 \x01(\x0e\x32$.proactive.platform.v1.ReceiptStatusR\x06status\x12\x1f\n\x0breason_code\x18\x03 \x01(\tR\nreasonCode\"C\n\x16GetCapabilitiesRequest\x12)\n\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\"k\n\x17GetCapabilitiesResponse\x12P\n\x0c\x63\x61pabilities\x18\x01 \x01(\x0b\x32,.proactive.platform.v1.CapabilityDeclarationR\x0c\x63\x61pabilities\"\xeb\x01\n\x15\x43\x61pabilityDeclaration\x12\x1d\n\nadapter_id\x18\x01 \x01(\tR\tadapterId\x12)\n\x10protocol_version\x18\x02 \x01(\tR\x0fprotocolVersion\x12\x41\n\x07\x61\x63tions\x18\x03 \x03(\x0b\x32\'.proactive.platform.v1.ActionCapabilityR\x07\x61\x63tions\x12\x45\n\tresources\x18\x04 \x03(\x0b\x32\'.proactive.platform.v1.ResourceCapacityR\tresources\"\xa2\x01\n\x10\x41\x63tionCapability\x12\x1f\n\x0b\x61\x63tion_type\x18\x01 \x01(\tR\nactionType\x12\x1c\n\tsupported\x18\x02 \x01(\x08R\tsupported\x12$\n\rinterruptible\x18\x03 \x01(\x08R\rinterruptible\x12)\n\x10supported_values\x18\x04 \x03(\tR\x0fsupportedValues\"J\n\x10ResourceCapacity\x12\x1a\n\x08resource\x18\x01 \x01(\tR\x08resource\x12\x1a\n\x08\x63\x61pacity\x18\x02 \x01(\rR\x08\x63\x61pacity\"P\n\x0e\x45xecuteRequest\x12>\n\x07\x63ommand\x18\x01 \x01(\x0b\x32$.proactive.platform.v1.ActionCommandR\x07\x63ommand\"N\n\x0f\x45xecuteResponse\x12;\n\x06status\x18\x01 \x01(\x0b\x32#.proactive.platform.v1.ActionStatusR\x06status\"L\n\x0eStopAllRequest\x12\x1f\n\x0breason_code\x18\x01 \x01(\tR\nreasonCode\x12\x19\n\x08trace_id\x18\x02 \x01(\tR\x07traceId\"-\n\x0fStopAllResponse\x12\x1a\n\x08\x61\x63\x63\x65pted\x18\x01 \x01(\x08R\x08\x61\x63\x63\x65pted*\xa1\x01\n\rReceiptStatus\x12\x1e\n\x1aRECEIPT_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n\x17RECEIPT_STATUS_ACCEPTED\x10\x01\x12\x1c\n\x18RECEIPT_STATUS_DUPLICATE\x10\x02\x12\x18\n\x14RECEIPT_STATUS_STALE\x10\x03\x12\x1b\n\x17RECEIPT_STATUS_REJECTED\x10\x04\x32u\n\x19ObservationIngressService\x12X\n\x07Publish\x12%.proactive.platform.v1.PublishRequest\x1a&.proactive.platform.v1.PublishResponse2\xc2\x02\n\x18\x45mbodimentAdapterService\x12p\n\x0fGetCapabilities\x12-.proactive.platform.v1.GetCapabilitiesRequest\x1a..proactive.platform.v1.GetCapabilitiesResponse\x12Z\n\x07\x45xecute\x12%.proactive.platform.v1.ExecuteRequest\x1a&.proactive.platform.v1.ExecuteResponse0\x01\x12X\n\x07StopAll\x12%.proactive.platform.v1.StopAllRequest\x1a&.proactive.platform.v1.StopAllResponseBFZDproactive-interaction-engine/gen/go/proactive/platform/v1;platformv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,34 +34,34 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'proactive.platform.v1.adapt
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'ZDproactive-interaction-engine/gen/go/proactive/platform/v1;platformv1'
-  _globals['_RECEIPTSTATUS']._serialized_start=1425
-  _globals['_RECEIPTSTATUS']._serialized_end=1586
-  _globals['_PUBLISHREQUEST']._serialized_start=139
-  _globals['_PUBLISHREQUEST']._serialized_end=233
-  _globals['_PUBLISHRESPONSE']._serialized_start=235
-  _globals['_PUBLISHRESPONSE']._serialized_end=321
-  _globals['_OBSERVATIONRECEIPT']._serialized_start=324
-  _globals['_OBSERVATIONRECEIPT']._serialized_end=478
-  _globals['_GETCAPABILITIESREQUEST']._serialized_start=480
-  _globals['_GETCAPABILITIESREQUEST']._serialized_end=547
-  _globals['_GETCAPABILITIESRESPONSE']._serialized_start=549
-  _globals['_GETCAPABILITIESRESPONSE']._serialized_end=656
-  _globals['_CAPABILITYDECLARATION']._serialized_start=659
-  _globals['_CAPABILITYDECLARATION']._serialized_end=894
-  _globals['_ACTIONCAPABILITY']._serialized_start=897
-  _globals['_ACTIONCAPABILITY']._serialized_end=1059
-  _globals['_RESOURCECAPACITY']._serialized_start=1061
-  _globals['_RESOURCECAPACITY']._serialized_end=1135
-  _globals['_EXECUTEREQUEST']._serialized_start=1137
-  _globals['_EXECUTEREQUEST']._serialized_end=1217
-  _globals['_EXECUTERESPONSE']._serialized_start=1219
-  _globals['_EXECUTERESPONSE']._serialized_end=1297
-  _globals['_STOPALLREQUEST']._serialized_start=1299
-  _globals['_STOPALLREQUEST']._serialized_end=1375
-  _globals['_STOPALLRESPONSE']._serialized_start=1377
-  _globals['_STOPALLRESPONSE']._serialized_end=1422
-  _globals['_OBSERVATIONINGRESSSERVICE']._serialized_start=1588
-  _globals['_OBSERVATIONINGRESSSERVICE']._serialized_end=1705
-  _globals['_EMBODIMENTADAPTERSERVICE']._serialized_start=1708
-  _globals['_EMBODIMENTADAPTERSERVICE']._serialized_end=2030
+  _globals['_RECEIPTSTATUS']._serialized_start=1470
+  _globals['_RECEIPTSTATUS']._serialized_end=1631
+  _globals['_PUBLISHREQUEST']._serialized_start=140
+  _globals['_PUBLISHREQUEST']._serialized_end=278
+  _globals['_PUBLISHRESPONSE']._serialized_start=280
+  _globals['_PUBLISHRESPONSE']._serialized_end=366
+  _globals['_OBSERVATIONRECEIPT']._serialized_start=369
+  _globals['_OBSERVATIONRECEIPT']._serialized_end=523
+  _globals['_GETCAPABILITIESREQUEST']._serialized_start=525
+  _globals['_GETCAPABILITIESREQUEST']._serialized_end=592
+  _globals['_GETCAPABILITIESRESPONSE']._serialized_start=594
+  _globals['_GETCAPABILITIESRESPONSE']._serialized_end=701
+  _globals['_CAPABILITYDECLARATION']._serialized_start=704
+  _globals['_CAPABILITYDECLARATION']._serialized_end=939
+  _globals['_ACTIONCAPABILITY']._serialized_start=942
+  _globals['_ACTIONCAPABILITY']._serialized_end=1104
+  _globals['_RESOURCECAPACITY']._serialized_start=1106
+  _globals['_RESOURCECAPACITY']._serialized_end=1180
+  _globals['_EXECUTEREQUEST']._serialized_start=1182
+  _globals['_EXECUTEREQUEST']._serialized_end=1262
+  _globals['_EXECUTERESPONSE']._serialized_start=1264
+  _globals['_EXECUTERESPONSE']._serialized_end=1342
+  _globals['_STOPALLREQUEST']._serialized_start=1344
+  _globals['_STOPALLREQUEST']._serialized_end=1420
+  _globals['_STOPALLRESPONSE']._serialized_start=1422
+  _globals['_STOPALLRESPONSE']._serialized_end=1467
+  _globals['_OBSERVATIONINGRESSSERVICE']._serialized_start=1633
+  _globals['_OBSERVATIONINGRESSSERVICE']._serialized_end=1750
+  _globals['_EMBODIMENTADAPTERSERVICE']._serialized_start=1753
+  _globals['_EMBODIMENTADAPTERSERVICE']._serialized_end=2075
 # @@protoc_insertion_point(module_scope)
