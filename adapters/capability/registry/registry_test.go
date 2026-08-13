@@ -183,6 +183,33 @@ func TestRegisterRejectsActiveProviderConflicts(t *testing.T) {
 	}
 }
 
+func TestLeaseSnapshotReturnsIndependentActiveAndExpiredRecords(t *testing.T) {
+	clock := engineclock.NewFake(testNow())
+	registry, _ := New(clock, time.Minute)
+	registration := registerOK(t, registry, validRegistration("camera", "camera-1", platformv1.ServiceCapabilityKind_SERVICE_CAPABILITY_KIND_PERSON_PRESENCE))
+
+	for _, leaseID := range []string{"", "unknown"} {
+		if snapshot, ok := registry.LeaseSnapshot(leaseID); ok {
+			t.Fatalf("LeaseSnapshot(%q) = %#v, true, want false", leaseID, snapshot)
+		}
+	}
+	first, ok := registry.LeaseSnapshot(registration.LeaseId)
+	if !ok || first.ProviderID != "camera" || first.InstanceID != "camera-1" || !reflect.DeepEqual(first.Capabilities, []readiness.CapabilityKind{readiness.PersonPresence}) {
+		t.Fatalf("LeaseSnapshot(active) = %#v, %t", first, ok)
+	}
+	first.Capabilities[0] = readiness.Locomotion
+	second, ok := registry.LeaseSnapshot(registration.LeaseId)
+	if !ok || !reflect.DeepEqual(second.Capabilities, []readiness.CapabilityKind{readiness.PersonPresence}) {
+		t.Fatalf("LeaseSnapshot(after returned mutation) = %#v, %t", second, ok)
+	}
+
+	clock.Advance(time.Minute)
+	expired, ok := registry.LeaseSnapshot(registration.LeaseId)
+	if !ok || !reflect.DeepEqual(expired, second) {
+		t.Fatalf("LeaseSnapshot(expired) = %#v, %t, want %#v, true", expired, ok, second)
+	}
+}
+
 func TestExpiredProviderCanBeReplacedButOldLeaseCannotRevive(t *testing.T) {
 	clock := engineclock.NewFake(testNow())
 	registry, _ := New(clock, time.Minute)
@@ -192,6 +219,12 @@ func TestExpiredProviderCanBeReplacedButOldLeaseCannotRevive(t *testing.T) {
 	replacement := registerOK(t, registry, validRegistration("camera", "new", platformv1.ServiceCapabilityKind_SERVICE_CAPABILITY_KIND_FACE_DETECTION))
 	if replacement.LeaseId == old.LeaseId {
 		t.Fatalf("replacement lease id = old lease id %q", old.LeaseId)
+	}
+	if snapshot, ok := registry.LeaseSnapshot(old.LeaseId); ok {
+		t.Fatalf("LeaseSnapshot(old) = %#v, true after replacement", snapshot)
+	}
+	if snapshot, ok := registry.LeaseSnapshot(replacement.LeaseId); !ok || snapshot.InstanceID != "new" {
+		t.Fatalf("LeaseSnapshot(replacement) = %#v, %t", snapshot, ok)
 	}
 	_, err := registry.HeartbeatCapabilityProvider(context.Background(), healthyHeartbeat(old.LeaseId))
 	requireStatusCode(t, err, codes.NotFound)
@@ -319,6 +352,9 @@ func TestUnregisterValidatesLeaseAndRemovesProvider(t *testing.T) {
 		if snapshots := registry.Snapshots(); len(snapshots) != 0 {
 			t.Fatalf("Snapshots() after unregister = %#v, want empty", snapshots)
 		}
+		if snapshot, ok := registry.LeaseSnapshot(registration.LeaseId); ok {
+			t.Fatalf("LeaseSnapshot(unregistered) = %#v, true", snapshot)
+		}
 	})
 }
 
@@ -405,6 +441,7 @@ func TestRegistrySupportsConcurrentHeartbeatSnapshotAndIdempotentRegister(t *tes
 		<-start
 		for range providerCount {
 			_ = registry.Snapshots()
+			_, _ = registry.LeaseSnapshot(leases[0])
 		}
 	}()
 	close(start)

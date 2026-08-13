@@ -179,6 +179,21 @@ func (r *Registry) Snapshots() []readiness.ProviderSnapshot {
 	return snapshots
 }
 
+// LeaseSnapshot returns the record currently bound to leaseID without
+// interpreting its expiry. Callers apply their own injected clock at use time.
+func (r *Registry) LeaseSnapshot(leaseID string) (readiness.ProviderSnapshot, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	record, exists := r.byLease[leaseID]
+	if !exists {
+		return readiness.ProviderSnapshot{}, false
+	}
+	snapshot := record.snapshot
+	snapshot.Capabilities = cloneCapabilities(record.snapshot.Capabilities)
+	return snapshot, true
+}
+
 func sameDeclaration(left, right registrationDeclaration) bool {
 	if left.providerID != right.providerID ||
 		left.instanceID != right.instanceID ||
