@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package proactive.platform.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "proactive-interaction-engine/gen/go/proactive/platform/v1;platformv1";
+
+// DesktopControlService exposes the typed loopback desktop surface. Bearer
+// token, loopback binding, origin, and CSRF enforcement belong to the transport
+// interceptor rather than these business messages. Implementations must route
+// interaction rejection through the runtime control queue and must not call the
+// Engine, TTS, or device workers directly.
+service DesktopControlService {
+  rpc GetState(GetStateRequest) returns (GetStateResponse);
+  rpc WatchState(WatchStateRequest) returns (stream WatchStateResponse);
+  rpc SetPermission(SetPermissionRequest) returns (SetPermissionResponse);
+  rpc RejectInteraction(RejectInteractionRequest) returns (RejectInteractionResponse);
+}
+
+message GetStateRequest {
+  string protocol_version = 1;
+}
+
+message GetStateResponse {
+  DesktopState state = 1;
+}
+
+message WatchStateRequest {
+  string protocol_version = 1;
+}
+
+message WatchStateResponse {
+  DesktopState state = 1;
+}
+
+message SetPermissionRequest {
+  string protocol_version = 1;
+  DesktopPermission permission = 2;
+  bool enabled = 3;
+}
+
+message SetPermissionResponse {
+  DesktopState state = 1;
+}
+
+message RejectInteractionRequest {
+  string protocol_version = 1;
+  string request_id = 2;
+  string subject_id = 3;
+  string trace_id = 4;
+}
+
+message RejectInteractionResponse {
+  bool accepted = 1;
+}
+
+message DesktopState {
+  uint64 revision = 1;
+  AvatarSnapshot avatar = 2;
+  repeated PermissionGrant permissions = 3;
+  repeated ProviderRuntime providers = 4;
+}
+
+message AvatarSnapshot {
+  AvatarMode mode = 1;
+  string text = 2;
+  bool speaking = 3;
+  string action_id = 4;
+  google.protobuf.Timestamp occurred_at = 5;
+}
+
+enum AvatarMode {
+  AVATAR_MODE_UNSPECIFIED = 0;
+  AVATAR_MODE_IDLE = 1;
+  AVATAR_MODE_ATTENDING = 2;
+  AVATAR_MODE_ACKNOWLEDGING = 3;
+  AVATAR_MODE_EXPRESSING = 4;
+  AVATAR_MODE_SPEAKING = 5;
+}
+
+message PermissionGrant {
+  DesktopPermission permission = 1;
+  bool enabled = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+
+enum DesktopPermission {
+  DESKTOP_PERMISSION_UNSPECIFIED = 0;
+  DESKTOP_PERMISSION_CAMERA_CAPTURE = 1;
+  DESKTOP_PERMISSION_MICROPHONE_CAPTURE = 2;
+  DESKTOP_PERMISSION_FACE_DETECTION = 3;
+  DESKTOP_PERMISSION_FACE_IDENTIFICATION = 4;
+  DESKTOP_PERMISSION_FACE_LIVENESS = 5;
+  DESKTOP_PERMISSION_SPEAKER_IDENTIFICATION = 6;
+  DESKTOP_PERMISSION_SPEAKER_VERIFICATION = 7;
+  DESKTOP_PERMISSION_SPEECH_TRANSCRIPTION = 8;
+}
+
+message ProviderRuntime {
+  string provider_id = 1;
+  ProviderRuntimeState state = 2;
+  ProviderRuntimeReason reason = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+enum ProviderRuntimeState {
+  PROVIDER_RUNTIME_STATE_UNSPECIFIED = 0;
+  PROVIDER_RUNTIME_STATE_DISABLED = 1;
+  PROVIDER_RUNTIME_STATE_STARTING = 2;
+  PROVIDER_RUNTIME_STATE_RUNNING = 3;
+  PROVIDER_RUNTIME_STATE_DEGRADED = 4;
+  PROVIDER_RUNTIME_STATE_STOPPING = 5;
+}
+
+// ProviderRuntimeReason is a stable machine-readable diagnostic. Unknown enum
+// values and invalid state/reason pairings must fail closed at the server.
+enum ProviderRuntimeReason {
+  PROVIDER_RUNTIME_REASON_UNSPECIFIED = 0;
+  PROVIDER_RUNTIME_REASON_NONE = 1;
+  PROVIDER_RUNTIME_REASON_DISABLED_BY_USER = 2;
+  PROVIDER_RUNTIME_REASON_PERMISSION_DENIED = 3;
+  PROVIDER_RUNTIME_REASON_DEVICE_UNAVAILABLE = 4;
+  PROVIDER_RUNTIME_REASON_DEPENDENCY_UNAVAILABLE = 5;
+  PROVIDER_RUNTIME_REASON_MODEL_UNAVAILABLE = 6;
+  PROVIDER_RUNTIME_REASON_INTERNAL_ERROR = 7;
+  PROVIDER_RUNTIME_REASON_SHUTTING_DOWN = 8;
+}
