@@ -148,6 +148,10 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 }
 
 func classify(op string, err error) error {
+	var typed *fault.Error
+	if errors.As(err, &typed) {
+		return err
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return fault.New(fault.DeadlineExceeded, op, err)
 	}

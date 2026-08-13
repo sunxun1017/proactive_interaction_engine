@@ -122,6 +122,22 @@ func TestSaveFailureDoesNotPublishPermission(t *testing.T) {
 	assertGrant(t, current, FaceIdentification, false, time.Time{})
 }
 
+func TestRepositoryFaultClassificationIsPreserved(t *testing.T) {
+	clock := engineclock.NewFake(time.Date(2026, time.August, 14, 10, 0, 0, 0, time.UTC))
+	repository := &recordingRepository{
+		saveErr: fault.New(fault.StaleInput, "save privacy permissions", errors.New("revision changed")),
+	}
+	service, err := New(context.Background(), repository, clock)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = service.Change(context.Background(), ChangePermission{Permission: CameraCapture, Enabled: true})
+	if !fault.IsCode(err, fault.StaleInput) {
+		t.Fatalf("Change() error = %v, want repository StaleInput preserved", err)
+	}
+}
+
 func TestNewRestoresAndCanonicalizesPersistedSnapshot(t *testing.T) {
 	updated := time.Date(2026, time.August, 13, 18, 30, 0, 0, time.UTC)
 	repository := &recordingRepository{loaded: Snapshot{
