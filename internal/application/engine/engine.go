@@ -278,7 +278,13 @@ func (e *Engine) dispatchCommands(ctx context.Context, commands []behavior.Actio
 			cancel()
 			return statuses, fault.New(fault.AdapterRejected, "execute action "+command.ID, err)
 		}
+		if stream == nil {
+			cancel()
+			return statuses, fault.New(fault.Unavailable, "await action "+command.ID, errors.New("adapter returned a nil status stream"))
+		}
 
+		var terminal behavior.ActionState
+		malformedAfterTerminal := false
 		for {
 			select {
 			case <-commandCtx.Done():
@@ -287,15 +293,44 @@ func (e *Engine) dispatchCommands(ctx context.Context, commands []behavior.Actio
 			case status, ok := <-stream:
 				if !ok {
 					cancel()
-					goto nextCommand
+					switch {
+					case terminal == "":
+						return statuses, fault.New(fault.Unavailable, "await action "+command.ID, errors.New("adapter status stream closed without a terminal state"))
+					case malformedAfterTerminal:
+						return statuses, fault.New(fault.AdapterRejected, "await action "+command.ID, errors.New("adapter emitted status after a terminal state"))
+					case terminal != behavior.ActionCompleted:
+						return statuses, fault.New(fault.AdapterRejected, "await action "+command.ID, fmt.Errorf("adapter ended action with terminal state %s", terminal))
+					default:
+						goto nextCommand
+					}
 				}
 				statuses = append(statuses, status)
 				e.bestEffortAuditStatus(statuses, status)
+				if terminal != "" {
+					malformedAfterTerminal = true
+					continue
+				}
+				if isTerminalActionState(status.State) {
+					terminal = status.State
+				}
 			}
 		}
 	nextCommand:
 	}
 	return statuses, nil
+}
+
+func isTerminalActionState(state behavior.ActionState) bool {
+	switch state {
+	case behavior.ActionCompleted,
+		behavior.ActionFailed,
+		behavior.ActionRejected,
+		behavior.ActionTimedOut,
+		behavior.ActionCancelled:
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *Engine) acceptUserReply(ctx context.Context, result *Result, input event.SemanticEvent) ([]behavior.ActionStatus, error) {
