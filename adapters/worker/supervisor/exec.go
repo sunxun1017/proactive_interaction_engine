@@ -12,6 +12,8 @@ type ExecLauncher struct{}
 
 func (ExecLauncher) Start(spec Spec) (Process, error) {
 	command := exec.Command(spec.Command, spec.Args...)
+	command.Dir = spec.WorkingDir
+	command.Env = append(os.Environ(), spec.Env...)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr

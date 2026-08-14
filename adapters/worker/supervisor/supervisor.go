@@ -24,6 +24,8 @@ type Spec struct {
 	Permission privacy.Permission
 	Command    string
 	Args       []string
+	WorkingDir string
+	Env        []string
 }
 
 // Process is a started child process with a single completion signal.
@@ -45,8 +47,9 @@ type LeaseSource interface {
 
 // Config bounds graceful worker termination.
 type Config struct {
-	StopTimeout time.Duration
-	after       func(time.Duration) <-chan time.Time
+	StopTimeout         time.Duration
+	HealthCheckInterval time.Duration
+	after               func(time.Duration) <-chan time.Time
 }
 
 type controller struct {
@@ -81,7 +84,7 @@ type Supervisor struct {
 // New constructs the explicit camera and microphone worker supervisor.
 func New(config Config, permissions *privacy.Service, leases LeaseSource, launcher Launcher, clock port.Clock, specs []Spec) (*Supervisor, error) {
 	const op = "create local worker supervisor"
-	if config.StopTimeout <= 0 || isNil(permissions) || isNil(leases) || isNil(launcher) || isNil(clock) {
+	if config.StopTimeout <= 0 || config.HealthCheckInterval <= 0 || isNil(permissions) || isNil(leases) || isNil(launcher) || isNil(clock) {
 		return nil, fault.New(fault.InvalidInput, op, errors.New("positive timeout and all dependencies are required"))
 	}
 	if len(specs) != 2 {
@@ -115,6 +118,7 @@ func New(config Config, permissions *privacy.Service, leases LeaseSource, launch
 		seenProvider[spec.ProviderID] = struct{}{}
 		seenPermission[spec.Permission] = struct{}{}
 		spec.Args = append([]string(nil), spec.Args...)
+		spec.Env = append([]string(nil), spec.Env...)
 		controllers = append(controllers, &controller{spec: spec, runtime: provider.Runtime{
 			ProviderID: spec.ProviderID, State: provider.Disabled, Reason: provider.ReasonDisabledByUser, UpdatedAt: now,
 		}})
@@ -161,6 +165,8 @@ func (s *Supervisor) Run(ctx context.Context) error {
 
 	initial, leaseUpdates, cancelLeases := s.leases.Subscribe()
 	defer cancelLeases()
+	healthChecks := s.clock.NewTicker(s.config.HealthCheckInterval)
+	defer healthChecks.Stop()
 	s.setLeases(initial)
 	if err := s.reconcileAll(ctx); err != nil {
 		return err
@@ -186,6 +192,11 @@ func (s *Supervisor) Run(ctx context.Context) error {
 				return err
 			}
 		case <-s.processes:
+			if err := s.reconcileAll(ctx); err != nil {
+				s.stopAll()
+				return err
+			}
+		case <-healthChecks.C():
 			if err := s.reconcileAll(ctx); err != nil {
 				s.stopAll()
 				return err

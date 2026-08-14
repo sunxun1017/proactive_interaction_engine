@@ -129,9 +129,40 @@ func TestSupervisorShutdownStopsAndJoinsEveryStartedWorker(t *testing.T) {
 	}
 }
 
+func TestSupervisorHealthCheckDegradesAtLeaseDeadline(t *testing.T) {
+	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	clock := engineclock.NewFake(now)
+	permissions := newPermissionService(t, now)
+	if _, err := permissions.Change(context.Background(), privacy.ChangePermission{Permission: privacy.CameraCapture, Enabled: true}); err != nil {
+		t.Fatalf("seed camera permission: %v", err)
+	}
+	leases := newFakeLeases()
+	launcher := &fakeLauncher{starts: make(chan Spec, 2)}
+	supervisor, err := New(Config{StopTimeout: time.Second, HealthCheckInterval: time.Second}, permissions, leases, launcher, clock, []Spec{
+		{ProviderID: "desktop-presence", Permission: privacy.CameraCapture, Command: "/python"},
+		{ProviderID: "desktop-vad", Permission: privacy.MicrophoneCapture, Command: "/python"},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- supervisor.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	receiveStart(t, launcher.starts)
+	leases.publish([]readiness.ProviderSnapshot{{
+		ProviderID: "desktop-presence", InstanceID: "camera-1", ProtocolVersion: "v1", ImplementationVersion: "test",
+		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy, LeaseExpiresAt: now.Add(time.Second),
+	}})
+	requireProviderState(t, supervisor, "desktop-presence", provider.Running, provider.ReasonNone)
+
+	clock.Advance(time.Second)
+	requireProviderState(t, supervisor, "desktop-presence", provider.Degraded, provider.ReasonDeviceUnavailable)
+}
+
 func newTestSupervisor(t *testing.T, permissions *privacy.Service, leases *fakeLeases, launcher *fakeLauncher, now time.Time) *Supervisor {
 	t.Helper()
-	supervisor, err := New(Config{StopTimeout: time.Second}, permissions, leases, launcher, engineclock.NewFake(now), []Spec{
+	supervisor, err := New(Config{StopTimeout: time.Second, HealthCheckInterval: time.Second}, permissions, leases, launcher, engineclock.NewFake(now), []Spec{
 		{ProviderID: "desktop-presence", Permission: privacy.CameraCapture, Command: "/python", Args: []string{"camera.py"}},
 		{ProviderID: "desktop-vad", Permission: privacy.MicrophoneCapture, Command: "/python", Args: []string{"microphone.py"}},
 	})
