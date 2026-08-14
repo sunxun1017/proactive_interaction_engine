@@ -207,7 +207,12 @@ class ProviderSession:
         except grpc.RpcError:
             self._clear_lease()
             return False
-        return response is not None and response.HasField("receipt")
+        if response is None or not response.HasField("receipt"):
+            return False
+        return response.receipt.status in (
+            adapter_pb2.RECEIPT_STATUS_ACCEPTED,
+            adapter_pb2.RECEIPT_STATUS_DUPLICATE,
+        )
 
     def _now(self):
         now = self._utcnow()

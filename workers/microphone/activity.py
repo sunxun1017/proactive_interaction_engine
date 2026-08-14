@@ -207,10 +207,7 @@ def main(argv=None):
     except Exception:
         source.close()
         raise
-    if not session.start():
-        source.close()
-        session.close()
-        raise RuntimeError("could not register microphone provider")
+    session.start()
     stop_event = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
     signal.signal(signal.SIGINT, lambda *_: stop_event.set())

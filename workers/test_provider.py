@@ -101,6 +101,13 @@ class ProviderSessionTest(unittest.TestCase):
         self.assertEqual(self.registry.unregisters[0][1], 1.5)
         self.assertFalse(self.session.publish_presence(True))
 
+    def test_rejected_receipt_is_handled_without_claiming_publish_success(self):
+        self.session.start()
+        self.ingress.status = adapter_pb2.RECEIPT_STATUS_REJECTED
+
+        self.assertFalse(self.session.publish_presence(True))
+        self.assertTrue(self.session.active)
+
 
 class FakeRPCError(grpc.RpcError):
     def __init__(self, status_code):
@@ -141,13 +148,14 @@ class FakeRegistry:
 class FakeIngress:
     def __init__(self):
         self.publishes = []
+        self.status = adapter_pb2.RECEIPT_STATUS_ACCEPTED
 
     def Publish(self, request, timeout):
         self.publishes.append((request, timeout))
         return adapter_pb2.PublishResponse(
             receipt=adapter_pb2.ObservationReceipt(
                 observation_id=request.observation.id,
-                status=adapter_pb2.RECEIPT_STATUS_ACCEPTED,
+                status=self.status,
             )
         )
 

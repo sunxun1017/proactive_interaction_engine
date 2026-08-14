@@ -59,6 +59,16 @@ class CameraWorkerTest(unittest.TestCase):
         self.assertEqual(session.presence, [])
         self.assertEqual(session.unhealthy, ["DEVICE_UNAVAILABLE"])
 
+    def test_retries_rejected_transition_after_scenario_becomes_ready(self):
+        source = FakeFrameSource([(True, object())] * 6)
+        session = FakeSession(publish_results=[False, False, True])
+        worker = CameraWorker(source, SequenceDetector([True] * 6), session)
+
+        for _ in range(6):
+            self.assertTrue(worker.step())
+
+        self.assertEqual(session.presence, [True, True, True])
+
     def test_anonymous_detector_uses_no_face_cascade(self):
         cv2 = FakeCV2()
 
@@ -85,10 +95,11 @@ class SequenceDetector:
 
 
 class FakeSession:
-    def __init__(self):
+    def __init__(self, publish_results=None):
         self.maintained = 0
         self.presence = []
         self.unhealthy = []
+        self._publish_results = iter(publish_results or [])
 
     def maintain(self):
         self.maintained += 1
@@ -96,7 +107,7 @@ class FakeSession:
 
     def publish_presence(self, present):
         self.presence.append(present)
-        return True
+        return next(self._publish_results, True)
 
     def mark_unhealthy(self, reason):
         self.unhealthy.append(reason)
