@@ -114,13 +114,15 @@ Application Engine 持有当前专用 continuation，并只向 Runner 暴露不�
 
 当前只支持根 Sequence 中唯一的 `WaitEvent(user.reply)` 专用 continuation，由 Application Engine 持有；Runner 仅调度不透明 Wakeup，不解释行为树或 Episode 语义。回复后动作的 deadline 在实际下发时生成。通用 `WaitEvent`、行为树 cursor 和工作流执行器仍未实现。
 
-Stage B 无硬件产品雏形已可通过 Fake Embodiment、Fake Clock、内存审计和五条模拟场景执行。Stage C1 的强类型能力契约、Provider Registry、场景 manifest 与校验已完成；Stage C2 的 fake-media gRPC Ingress 纵向测试已连通 Registry、Runner 和 Engine。真实 PC 摄像头/VAD worker、Web avatar、TTS 和控制界面仍未实现。
+Stage B 无硬件产品雏形已可通过 Fake Embodiment、Fake Clock、内存审计和五条模拟场景执行。Stage C1 的强类型能力契约、Provider Registry、场景 manifest 与校验已完成；Stage C2 的基础 PC 体验也已完成：loopback Web Avatar/TTS/控制面板，私有 UDS 上的 Camera/VAD Provider，以及 Registry、Ingress、Runner 和 Engine 的纵向链路。Stage C3 生物身份仍未实现。
 
 Stage C 已扩展为能力平台。Provider 声明稳定 ID、协议/实现版本、强类型能力、健康、隐私等级、延迟和取消语义；版本化场景声明 required、optional、选定 Provider、最低身份保证和确定性 fallback。首版采用显式部署配置，不实现任意动态插件或运行中热卸载。
 
 摄像头、麦克风及每项生物识别能力必须分别授权并持续显示状态。生物识别默认关闭；face detection 和 liveness 只需功能授权，face identification、speaker identification 与 speaker verification 还需逐用户注册。本地提取并加密保存模板，原始注册媒体提取后立即丢弃。VAD 和 ASR 仍是独立能力。Worker 只输出身份候选，Identity Resolver 负责阈值、融合和冲突；不确定、多人歧义或人脸/声纹冲突时回退匿名，不能加载私有记忆，也不能将生物识别用于安全认证。
 
 原始帧、PCM、裁剪、embedding、声纹向量、Tensor 和生物模板只存在于受控 Worker 或专用加密存储，不进入 Engine、语义审计或通用契约。控制界面只监听 loopback，首个运行平台为 Ubuntu Linux，本地语音输出使用 Speech Dispatcher。摄像头、麦克风、身份、UI 或 TTS 失效时必须独立降级，不能阻塞 P0 拒绝和核心静默路径。详细产品定义见 `docs/PRODUCT_REQUIREMENTS.md`，边界决策见 ADR 0002。
+
+Stage C2 的 Python media worker 仅连接 composition 创建的随机私有 UDS：运行目录 `0700`、socket `0600`，不开放 TCP。CameraCapture 与 MicrophoneCapture 默认关闭并分别驱动子进程；许可表示期望状态，只有健康且未过期的 Registry lease 才表示 Provider 正在运行。Camera 使用显式设备、640×480/约 5 FPS、HOG/upper-body 匿名人体检测和进入/退出滞回，不得在 CameraCapture 授权下加载人脸模型。VAD 使用 16 kHz mono s16le、20 ms 帧、300 ms 稳定语音判定和 500 ms 静音重武装。worker 所有者负责 SIGTERM、超时 SIGKILL 与 join，不自动无限重启。
 
 暂不引入 Kafka、Kubernetes、微服务拆分、任意动态插件、万能事件总线、完整 Event Sourcing、工作流平台、向量数据库实时依赖、LLM 总控制器或 ROS 领域类型。
 

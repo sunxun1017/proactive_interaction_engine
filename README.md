@@ -1,6 +1,6 @@
 # Proactive Interaction Engine
 
-一个可执行的主动式陪伴智能体核心骨架。项目采用“模块化单体核心 + 端口适配器 + 契约优先 + 重模型进程隔离”，首版实现可在无摄像头、无机器人、无云端模型的环境中验证“用户离开后返回”的主动交互闭环。
+一个可执行的主动式陪伴智能体平台。项目采用“模块化单体核心 + 端口适配器 + 契约优先 + 重模型进程隔离”，既可用确定性模拟验证“用户离开后返回”的主动交互，也已提供 Ubuntu PC 上的本地 Web Avatar、免按键 VAD 和匿名在场检测雏形。
 
 ## 当前能力
 
@@ -15,6 +15,9 @@
 - 欢迎、保持静默、用户回复、显式拒绝和无响应五条模拟场景
 - 强类型能力契约、Provider Registry、严格场景 manifest 与显式 Provider 选择
 - 带 Provider lease 校验的 gRPC Ingress fake-media 纵向闭环
+- 私有 UDS 上的真实 Camera/VAD Provider、15 秒租约与独立降级
+- 默认关闭且可分别撤销的 Camera/Microphone 权限、持续 Provider 状态
+- loopback typed Web 控制面板、Web Avatar 与本地 Speech Dispatcher TTS
 - Protobuf 外部契约、行为与配置样例、架构依赖测试
 - 仓库级 Agent Skill 与 Git/CI 约束
 
@@ -35,7 +38,7 @@ go run ./cmd/simulator -timeout
 
 `-reply` 使用 Fake Clock 演示用户在响应窗口内回复后记录 `ACCEPTED`；`-reject` 演示 `StopAll`、`REJECTED` 与 30 分钟冷却（P0 抢占顺序由 Runner 集成测试验证）；`-timeout` 精确推进到响应截止时刻，记录 `NO_RESPONSE`、进入 5 分钟冷却并执行 `RETURN_IDLE`。
 
-Stage B 的无硬件产品雏形已完成：上述五条路径均可通过 Fake Embodiment、Fake Clock 和内存审计在本机执行。Stage C1 已完成强类型能力契约、Provider Registry 和首个版本化场景 manifest；Stage C2 已用 fake-media gRPC 测试连通 Registry、Ingress、Runner 与 Engine。真实摄像头/VAD worker、Web avatar、Speech Dispatcher TTS、控制界面和生物识别仍待实现，当前模拟器不伪装这些外部能力。核心目前仍只支持欢迎计划中专用的 `WaitEvent(user.reply)` continuation，不是通用工作流执行器。
+Stage B 的无硬件产品雏形和 Stage C2 的基础 PC 体验已完成。Camera worker 使用 HOG/upper-body 的匿名人体检测，不运行人脸识别；Microphone worker 使用本地 WebRTC VAD，响应窗口内任何稳定人声都可由可信 Ingress 转为回复。原始帧/PCM 不出 worker，不录制、不转写。Stage C3 的人脸/声纹注册、识别、加密模板和 Identity Resolver 是下一阶段，当前不伪装这些能力。核心仍只支持欢迎计划中专用的 `WaitEvent(user.reply)` continuation，不是通用工作流执行器。
 
 相关增量验证：
 
@@ -43,7 +46,13 @@ Stage B 的无硬件产品雏形已完成：上述五条路径均可通过 Fake 
 go test ./adapters/capability/registry ./adapters/config/scenario ./adapters/input/ingress
 go test -race ./adapters/input/ingress
 go test ./tests/architecture
+make media-env
+make media-test
+make web-build
+go run ./cmd/desktop
 ```
+
+`cmd/desktop` 只监听 loopback，worker 只连接随机私有 UDS。摄像头和麦克风首次均为关闭状态；在 Web 面板分别授权后才启动对应进程，撤权或退出会停止并 join 子进程。默认显式设备是 `/dev/video0`，音频使用 PulseAudio `pacat`；首版不会在多个摄像头间静默选择。`make media-env` 在仓库内创建被 Git 忽略的 Python 3.10 venv，不使用全局 pip。
 
 ## 目录
 
@@ -53,6 +62,7 @@ internal/domain/      领域类型与纯规则
 internal/application/ 用例编排和端口
 internal/runtime/     时钟与运行期基础设施
 adapters/             外部输入、载体、模型、存储适配器
+workers/              隔离的本地 Camera/VAD Provider
 contracts/            跨进程 Protobuf 契约
 behaviors/            可审阅的行为定义
 configs/              已验证配置样例

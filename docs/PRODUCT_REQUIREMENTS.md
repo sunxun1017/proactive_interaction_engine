@@ -189,9 +189,13 @@ Identity Resolver 负责阈值、候选融合、多人场景和冲突处理。�
 
 Person Presence、免按键 VAD、Web Avatar、本地 Speech Dispatcher TTS、隐私与控制面板。
 
+状态：已完成基础雏形。Camera/Microphone 默认关闭并可分别授权；匿名 Camera Provider、WebRTC VAD Provider、私有 UDS、租约健康、loopback 面板、Web Avatar/TTS 和独立降级已经接通。摄像头检测仍是 HOG/upper-body 原型，在遮挡、背身和弱光下可能漏检，不代表身份能力。
+
 ### Stage C3: Biometric Identity
 
 用户注册与删除、人脸识别、声纹识别/验证、Identity Resolver、加密模板存储和匿名降级。
+
+进入本阶段前必须保持 C2 的匿名在场与 VAD Provider 不变；Face/Speaker 各自拥有独立 Provider、许可、注册状态与模板存储。不得以 Camera/Microphone 采集许可替代生物识别许可。
 
 ### Stage C4: Scenario Composition
 
