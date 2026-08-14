@@ -393,6 +393,26 @@ func TestSubscribePublishesImmutableLatestSnapshotsForSuccessfulMutations(t *tes
 	}
 }
 
+func TestRevokeProviderRemovesOnlyTheOwnedLocalProvider(t *testing.T) {
+	registry, _ := New(engineclock.NewFake(testNow()), time.Minute)
+	camera := registerOK(t, registry, validRegistration("camera", "camera-1", platformv1.ServiceCapabilityKind_SERVICE_CAPABILITY_KIND_PERSON_PRESENCE))
+	registerOK(t, registry, validRegistration("vad", "vad-1", platformv1.ServiceCapabilityKind_SERVICE_CAPABILITY_KIND_VOICE_ACTIVITY))
+
+	if !registry.RevokeProvider("camera") {
+		t.Fatal("RevokeProvider(camera) = false, want true")
+	}
+	if registry.RevokeProvider("camera") || registry.RevokeProvider("") {
+		t.Fatal("repeated or empty RevokeProvider() unexpectedly removed a provider")
+	}
+	if _, exists := registry.LeaseSnapshot(camera.LeaseId); exists {
+		t.Fatal("revoked camera lease remains available")
+	}
+	snapshots := registry.Snapshots()
+	if len(snapshots) != 1 || snapshots[0].ProviderID != "vad" {
+		t.Fatalf("snapshots after revoke = %#v, want only vad", snapshots)
+	}
+}
+
 func receiveSnapshots(t *testing.T, updates <-chan []readiness.ProviderSnapshot) []readiness.ProviderSnapshot {
 	t.Helper()
 	select {

@@ -43,6 +43,7 @@ type Launcher interface {
 // LeaseSource is the immutable capability registry view used for health.
 type LeaseSource interface {
 	Subscribe() ([]readiness.ProviderSnapshot, <-chan []readiness.ProviderSnapshot, func())
+	RevokeProvider(string) bool
 }
 
 // Config bounds graceful worker termination.
@@ -235,6 +236,8 @@ func (s *Supervisor) reconcileOne(item *controller, enabled bool) error {
 		case <-process.Done():
 			item.process = nil
 			process = nil
+			s.leases.RevokeProvider(item.spec.ProviderID)
+			s.removeLeaseStateLocked(item.spec.ProviderID)
 			if enabled {
 				item.failed = true
 				s.setRuntimeLocked(item, provider.Degraded, provider.ReasonInternalError)
@@ -252,7 +255,9 @@ func (s *Supervisor) reconcileOne(item *controller, enabled bool) error {
 		s.setRuntimeLocked(item, provider.Stopping, provider.ReasonShuttingDown)
 		s.mu.Unlock()
 		s.stopProcess(process)
+		s.leases.RevokeProvider(item.spec.ProviderID)
 		s.mu.Lock()
+		s.removeLeaseStateLocked(item.spec.ProviderID)
 		item.process = nil
 		item.everHealthy = false
 		s.setRuntimeLocked(item, provider.Disabled, provider.ReasonDisabledByUser)
@@ -319,8 +324,10 @@ func (s *Supervisor) stopAll() {
 		s.mu.Unlock()
 		if process != nil {
 			s.stopProcess(process)
+			s.leases.RevokeProvider(item.spec.ProviderID)
 		}
 		s.mu.Lock()
+		s.removeLeaseStateLocked(item.spec.ProviderID)
 		item.process = nil
 		item.failed = false
 		item.everHealthy = false
@@ -344,6 +351,16 @@ func (s *Supervisor) setLeases(input []readiness.ProviderSnapshot) {
 	s.mu.Lock()
 	s.leaseState = cloneLeases(input)
 	s.mu.Unlock()
+}
+
+func (s *Supervisor) removeLeaseStateLocked(providerID string) {
+	filtered := s.leaseState[:0]
+	for _, snapshot := range s.leaseState {
+		if snapshot.ProviderID != providerID {
+			filtered = append(filtered, snapshot)
+		}
+	}
+	s.leaseState = filtered
 }
 
 func (s *Supervisor) setRuntimeLocked(item *controller, state provider.State, reason provider.Reason) {

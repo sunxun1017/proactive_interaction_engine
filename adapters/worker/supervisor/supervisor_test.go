@@ -67,7 +67,8 @@ func TestSupervisorCrashDegradesWithoutRestartUntilExplicitRetry(t *testing.T) {
 		t.Fatalf("seed microphone permission: %v", err)
 	}
 	launcher := &fakeLauncher{starts: make(chan Spec, 3)}
-	supervisor := newTestSupervisor(t, permissions, newFakeLeases(), launcher, now)
+	leases := newFakeLeases()
+	supervisor := newTestSupervisor(t, permissions, leases, launcher, now)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- supervisor.Run(ctx) }()
@@ -76,6 +77,9 @@ func TestSupervisorCrashDegradesWithoutRestartUntilExplicitRetry(t *testing.T) {
 	receiveStart(t, launcher.starts)
 	launcher.process(0).exit(errors.New("capture failed"))
 	requireProviderState(t, supervisor, "desktop-vad", provider.Degraded, provider.ReasonInternalError)
+	if got := leases.revokedSnapshot(); !reflect.DeepEqual(got, []string{"desktop-vad"}) {
+		t.Fatalf("revoked providers = %#v, want crashed desktop-vad", got)
+	}
 	select {
 	case spec := <-launcher.starts:
 		t.Fatalf("crashed worker restarted automatically: %#v", spec)
@@ -225,6 +229,19 @@ type fakeLeases struct {
 	mu      sync.Mutex
 	current []readiness.ProviderSnapshot
 	updates chan []readiness.ProviderSnapshot
+	revoked []string
+}
+
+func (f *fakeLeases) RevokeProvider(providerID string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.revoked = append(f.revoked, providerID)
+	return true
+}
+func (f *fakeLeases) revokedSnapshot() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.revoked...)
 }
 
 func newFakeLeases() *fakeLeases {

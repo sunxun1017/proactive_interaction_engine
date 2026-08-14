@@ -245,6 +245,25 @@ func (r *Registry) LeaseSnapshot(leaseID string) (readiness.ProviderSnapshot, bo
 	return snapshot, true
 }
 
+// RevokeProvider removes the current local lease for providerID. It is used by
+// the composition-owned process supervisor when a child can no longer
+// unregister itself, preventing a dead instance from appearing healthy.
+func (r *Registry) RevokeProvider(providerID string) bool {
+	if providerID == "" {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	record, exists := r.byProvider[providerID]
+	if !exists {
+		return false
+	}
+	delete(r.byProvider, providerID)
+	delete(r.byLease, record.leaseID)
+	r.notifySubscribersLocked()
+	return true
+}
+
 func sameDeclaration(left, right registrationDeclaration) bool {
 	if left.providerID != right.providerID ||
 		left.instanceID != right.instanceID ||
