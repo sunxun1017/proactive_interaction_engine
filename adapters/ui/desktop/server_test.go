@@ -16,6 +16,7 @@ import (
 	"proactive-interaction-engine/internal/domain/control"
 	"proactive-interaction-engine/internal/domain/fault"
 	engineclock "proactive-interaction-engine/internal/runtime/clock"
+	"proactive-interaction-engine/internal/runtime/provider"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -27,6 +28,7 @@ import (
 var (
 	_ AvatarSource        = (*fakeAvatar)(nil)
 	_ PermissionService   = (*fakePermissions)(nil)
+	_ provider.Source     = (*fakeProviders)(nil)
 	_ ControlSubmitter    = (*fakeControls)(nil)
 	_ TransportAuthorizer = (*fakeAuthorizer)(nil)
 )
@@ -35,6 +37,7 @@ func TestNewServerValidatesDependencies(t *testing.T) {
 	dependencies := newServerDependencies()
 	var nilAvatar *fakeAvatar
 	var nilPermissions *fakePermissions
+	var nilProviders *fakeProviders
 	var nilControls *fakeControls
 	var nilAuthorizer *fakeAuthorizer
 	var nilClock *engineclock.Fake
@@ -44,24 +47,27 @@ func TestNewServerValidatesDependencies(t *testing.T) {
 		subjectID   string
 		avatar      AvatarSource
 		permissions PermissionService
+		providers   provider.Source
 		controls    ControlSubmitter
 		authorizer  TransportAuthorizer
 		clock       port.Clock
 	}{
-		{name: "empty subject", avatar: dependencies.avatar, permissions: dependencies.permissions, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
-		{name: "nil avatar", subjectID: "user-1", permissions: dependencies.permissions, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
-		{name: "typed nil avatar", subjectID: "user-1", avatar: nilAvatar, permissions: dependencies.permissions, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
-		{name: "nil permissions", subjectID: "user-1", avatar: dependencies.avatar, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
-		{name: "typed nil permissions", subjectID: "user-1", avatar: dependencies.avatar, permissions: nilPermissions, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
-		{name: "nil controls", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, authorizer: dependencies.authorizer, clock: dependencies.clock},
-		{name: "typed nil controls", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, controls: nilControls, authorizer: dependencies.authorizer, clock: dependencies.clock},
-		{name: "nil authorizer", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, controls: dependencies.controls, clock: dependencies.clock},
-		{name: "typed nil authorizer", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, controls: dependencies.controls, authorizer: nilAuthorizer, clock: dependencies.clock},
-		{name: "nil clock", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, controls: dependencies.controls, authorizer: dependencies.authorizer},
-		{name: "typed nil clock", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: nilClock},
+		{name: "empty subject", avatar: dependencies.avatar, permissions: dependencies.permissions, providers: dependencies.providers, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
+		{name: "nil avatar", subjectID: "user-1", permissions: dependencies.permissions, providers: dependencies.providers, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
+		{name: "typed nil avatar", subjectID: "user-1", avatar: nilAvatar, permissions: dependencies.permissions, providers: dependencies.providers, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
+		{name: "nil permissions", subjectID: "user-1", avatar: dependencies.avatar, providers: dependencies.providers, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
+		{name: "typed nil permissions", subjectID: "user-1", avatar: dependencies.avatar, permissions: nilPermissions, providers: dependencies.providers, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
+		{name: "nil providers", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
+		{name: "typed nil providers", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, providers: nilProviders, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: dependencies.clock},
+		{name: "nil controls", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, providers: dependencies.providers, authorizer: dependencies.authorizer, clock: dependencies.clock},
+		{name: "typed nil controls", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, providers: dependencies.providers, controls: nilControls, authorizer: dependencies.authorizer, clock: dependencies.clock},
+		{name: "nil authorizer", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, providers: dependencies.providers, controls: dependencies.controls, clock: dependencies.clock},
+		{name: "typed nil authorizer", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, providers: dependencies.providers, controls: dependencies.controls, authorizer: nilAuthorizer, clock: dependencies.clock},
+		{name: "nil clock", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, providers: dependencies.providers, controls: dependencies.controls, authorizer: dependencies.authorizer},
+		{name: "typed nil clock", subjectID: "user-1", avatar: dependencies.avatar, permissions: dependencies.permissions, providers: dependencies.providers, controls: dependencies.controls, authorizer: dependencies.authorizer, clock: nilClock},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			server, err := NewServer(test.subjectID, test.avatar, test.permissions, test.controls, test.authorizer, test.clock)
+			server, err := NewServer(test.subjectID, test.avatar, test.permissions, test.providers, test.controls, test.authorizer, test.clock)
 			if server != nil || !fault.IsCode(err, fault.InvalidInput) {
 				t.Fatalf("NewServer() = %#v, %v, want nil and InvalidInput", server, err)
 			}
@@ -151,8 +157,8 @@ func TestGetStateMapsAllAvatarModesAndPermissionsDeterministically(t *testing.T)
 				t.Fatalf("GetState() error = %v", err)
 			}
 			state := response.GetState()
-			if state.GetRevision() == 0 || len(state.GetProviders()) != 0 {
-				t.Fatalf("state = %#v, want server revision and no provider runtimes", state)
+			if state.GetRevision() == 0 || len(state.GetProviders()) != 2 {
+				t.Fatalf("state = %#v, want server revision and two provider runtimes", state)
 			}
 			avatar := state.GetAvatar()
 			if avatar.GetMode() != wantMode || avatar.GetText() != "你好" || avatar.GetSpeaking() != (mode == webavatar.ModeSpeaking) || avatar.GetActionId() != "action-1" || !avatar.GetOccurredAt().AsTime().Equal(occurredAt) {
@@ -186,6 +192,7 @@ func TestGetStateAcceptsRealWebAvatarInitialSnapshot(t *testing.T) {
 		"user-1",
 		avatar,
 		dependencies.permissions,
+		dependencies.providers,
 		dependencies.controls,
 		dependencies.authorizer,
 		dependencies.clock,
@@ -199,6 +206,101 @@ func TestGetStateAcceptsRealWebAvatarInitialSnapshot(t *testing.T) {
 	}
 	if response.GetState().GetRevision() == 0 || response.GetState().GetAvatar().GetMode() != platformv1.AvatarMode_AVATAR_MODE_IDLE {
 		t.Fatalf("GetState() = %#v, want positive composite revision and IDLE avatar", response.GetState())
+	}
+}
+
+func TestGetStateMapsProviderRuntimeInStableOrder(t *testing.T) {
+	dependencies := newServerDependencies()
+	updatedAt := dependencies.clock.Now().Add(-time.Minute)
+	dependencies.providers.current = provider.Snapshot{Revision: 41, Providers: []provider.Runtime{
+		{ProviderID: "desktop-vad", State: provider.Running, Reason: provider.ReasonNone, UpdatedAt: updatedAt},
+		{ProviderID: "desktop-presence", State: provider.Disabled, Reason: provider.ReasonDisabledByUser, UpdatedAt: updatedAt},
+	}}
+	server := newTestServer(t, dependencies)
+
+	response, err := server.GetState(context.Background(), validGetStateRequest())
+	if err != nil {
+		t.Fatalf("GetState() error = %v", err)
+	}
+	providers := response.GetState().GetProviders()
+	if len(providers) != 2 || providers[0].GetProviderId() != "desktop-presence" || providers[1].GetProviderId() != "desktop-vad" {
+		t.Fatalf("providers = %#v, want provider-id order", providers)
+	}
+	if providers[0].GetState() != platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DISABLED ||
+		providers[0].GetReason() != platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_DISABLED_BY_USER ||
+		providers[1].GetState() != platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_RUNNING ||
+		providers[1].GetReason() != platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_NONE {
+		t.Fatalf("providers = %#v, want exact typed state and reason mappings", providers)
+	}
+	for _, runtime := range providers {
+		if !runtime.GetUpdatedAt().AsTime().Equal(updatedAt) {
+			t.Fatalf("provider %q timestamp = %v, want %v", runtime.GetProviderId(), runtime.GetUpdatedAt(), updatedAt)
+		}
+	}
+}
+
+func TestProviderRuntimeMapperCoversEveryValidStateReasonPair(t *testing.T) {
+	updatedAt := time.Date(2026, time.August, 14, 10, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name       string
+		state      provider.State
+		reason     provider.Reason
+		wantState  platformv1.ProviderRuntimeState
+		wantReason platformv1.ProviderRuntimeReason
+	}{
+		{name: "disabled", state: provider.Disabled, reason: provider.ReasonDisabledByUser, wantState: platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DISABLED, wantReason: platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_DISABLED_BY_USER},
+		{name: "starting", state: provider.Starting, reason: provider.ReasonNone, wantState: platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_STARTING, wantReason: platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_NONE},
+		{name: "running", state: provider.Running, reason: provider.ReasonNone, wantState: platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_RUNNING, wantReason: platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_NONE},
+		{name: "degraded permission", state: provider.Degraded, reason: provider.ReasonPermissionDenied, wantState: platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DEGRADED, wantReason: platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_PERMISSION_DENIED},
+		{name: "degraded device", state: provider.Degraded, reason: provider.ReasonDeviceUnavailable, wantState: platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DEGRADED, wantReason: platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_DEVICE_UNAVAILABLE},
+		{name: "degraded dependency", state: provider.Degraded, reason: provider.ReasonDependencyUnavailable, wantState: platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DEGRADED, wantReason: platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_DEPENDENCY_UNAVAILABLE},
+		{name: "degraded model", state: provider.Degraded, reason: provider.ReasonModelUnavailable, wantState: platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DEGRADED, wantReason: platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_MODEL_UNAVAILABLE},
+		{name: "degraded internal", state: provider.Degraded, reason: provider.ReasonInternalError, wantState: platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DEGRADED, wantReason: platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_INTERNAL_ERROR},
+		{name: "stopping", state: provider.Stopping, reason: provider.ReasonShuttingDown, wantState: platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_STOPPING, wantReason: platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_SHUTTING_DOWN},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			messages, err := providersToWire(provider.Snapshot{Providers: []provider.Runtime{{
+				ProviderID: "provider-1", State: test.state, Reason: test.reason, UpdatedAt: updatedAt,
+			}}})
+			if err != nil {
+				t.Fatalf("providersToWire() error = %v", err)
+			}
+			if len(messages) != 1 || messages[0].GetState() != test.wantState || messages[0].GetReason() != test.wantReason {
+				t.Fatalf("providersToWire() = %#v, want %s/%s", messages, test.wantState, test.wantReason)
+			}
+		})
+	}
+}
+
+func TestGetStateFailsClosedOnInvalidProviderRuntime(t *testing.T) {
+	validTime := time.Date(2026, time.August, 14, 10, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name    string
+		runtime provider.Runtime
+	}{
+		{name: "empty provider id", runtime: provider.Runtime{State: provider.Running, Reason: provider.ReasonNone, UpdatedAt: validTime}},
+		{name: "padded provider id", runtime: provider.Runtime{ProviderID: " desktop-vad", State: provider.Running, Reason: provider.ReasonNone, UpdatedAt: validTime}},
+		{name: "unknown state", runtime: provider.Runtime{ProviderID: "desktop-vad", State: provider.State("UNKNOWN"), Reason: provider.ReasonNone, UpdatedAt: validTime}},
+		{name: "unknown reason", runtime: provider.Runtime{ProviderID: "desktop-vad", State: provider.Running, Reason: provider.Reason("UNKNOWN"), UpdatedAt: validTime}},
+		{name: "invalid state reason pair", runtime: provider.Runtime{ProviderID: "desktop-vad", State: provider.Running, Reason: provider.ReasonDeviceUnavailable, UpdatedAt: validTime}},
+		{name: "zero timestamp", runtime: provider.Runtime{ProviderID: "desktop-vad", State: provider.Running, Reason: provider.ReasonNone}},
+		{name: "invalid timestamp", runtime: provider.Runtime{ProviderID: "desktop-vad", State: provider.Running, Reason: provider.ReasonNone, UpdatedAt: time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dependencies := newServerDependencies()
+			dependencies.providers.current = provider.Snapshot{Revision: 2, Providers: []provider.Runtime{test.runtime}}
+			server := newTestServer(t, dependencies)
+			if _, err := server.GetState(context.Background(), validGetStateRequest()); status.Code(err) != codes.Internal {
+				t.Fatalf("GetState() code = %s, want Internal", status.Code(err))
+			}
+		})
+	}
+
+	dependencies := newServerDependencies()
+	dependencies.providers.current.Providers = append(dependencies.providers.current.Providers, dependencies.providers.current.Providers[0])
+	server := newTestServer(t, dependencies)
+	if _, err := server.GetState(context.Background(), validGetStateRequest()); status.Code(err) != codes.Internal {
+		t.Fatalf("GetState() with duplicate provider code = %s, want Internal", status.Code(err))
 	}
 }
 
@@ -376,6 +478,48 @@ func TestWatchStatePublishesLatestCompositeWithoutBlockingPermissionChange(t *te
 	}
 }
 
+func TestWatchStatePublishesProviderUpdatesAndReleasesSubscription(t *testing.T) {
+	dependencies := newServerDependencies()
+	server := newTestServer(t, dependencies)
+	ctx, cancel := context.WithCancel(context.Background())
+	stream := newFakeWatchStream(ctx)
+	done := make(chan error, 1)
+	go func() {
+		done <- server.WatchState(&platformv1.WatchStateRequest{ProtocolVersion: protocolVersion}, stream)
+	}()
+
+	initial := stream.next(t)
+	updatedAt := dependencies.clock.Now().Add(time.Second)
+	dependencies.providers.publish(provider.Snapshot{Revision: 2, Providers: []provider.Runtime{
+		{ProviderID: "desktop-vad", State: provider.Running, Reason: provider.ReasonNone, UpdatedAt: updatedAt},
+		{ProviderID: "desktop-presence", State: provider.Degraded, Reason: provider.ReasonDeviceUnavailable, UpdatedAt: updatedAt},
+	}})
+	updated := stream.next(t)
+	if updated.GetRevision() <= initial.GetRevision() {
+		t.Fatalf("provider update revision = %d, want greater than %d", updated.GetRevision(), initial.GetRevision())
+	}
+	providers := updated.GetProviders()
+	if len(providers) != 2 || providers[0].GetProviderId() != "desktop-presence" || providers[1].GetProviderId() != "desktop-vad" ||
+		providers[0].GetState() != platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DEGRADED {
+		t.Fatalf("provider update = %#v, want latest stable provider order", providers)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if status.Code(err) != codes.Canceled {
+			t.Fatalf("WatchState() code = %s, want Canceled", status.Code(err))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WatchState did not stop after client disconnect")
+	}
+	select {
+	case <-dependencies.providers.cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("WatchState did not release provider subscription")
+	}
+}
+
 func validGetStateRequest() *platformv1.GetStateRequest {
 	return &platformv1.GetStateRequest{ProtocolVersion: protocolVersion}
 }
@@ -383,6 +527,7 @@ func validGetStateRequest() *platformv1.GetStateRequest {
 type serverDependencies struct {
 	avatar      *fakeAvatar
 	permissions *fakePermissions
+	providers   *fakeProviders
 	controls    *fakeControls
 	authorizer  *fakeAuthorizer
 	clock       *engineclock.Fake
@@ -397,19 +542,82 @@ func newServerDependencies() serverDependencies {
 			cancelled: make(chan struct{}, 8),
 		},
 		permissions: &fakePermissions{snapshot: disabledPrivacySnapshot()},
-		controls:    &fakeControls{},
-		authorizer:  &fakeAuthorizer{},
-		clock:       clock,
+		providers: &fakeProviders{
+			current: provider.Snapshot{Revision: 1, Providers: []provider.Runtime{
+				{ProviderID: "desktop-vad", State: provider.Disabled, Reason: provider.ReasonDisabledByUser, UpdatedAt: now},
+				{ProviderID: "desktop-presence", State: provider.Disabled, Reason: provider.ReasonDisabledByUser, UpdatedAt: now},
+			}},
+			cancelled: make(chan struct{}, 8),
+		},
+		controls:   &fakeControls{},
+		authorizer: &fakeAuthorizer{},
+		clock:      clock,
 	}
 }
 
 func newTestServer(t *testing.T, dependencies serverDependencies) *Server {
 	t.Helper()
-	server, err := NewServer("user-1", dependencies.avatar, dependencies.permissions, dependencies.controls, dependencies.authorizer, dependencies.clock)
+	server, err := NewServer("user-1", dependencies.avatar, dependencies.permissions, dependencies.providers, dependencies.controls, dependencies.authorizer, dependencies.clock)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
 	return server
+}
+
+type fakeProviders struct {
+	mu          sync.Mutex
+	current     provider.Snapshot
+	subscribers map[uint64]chan provider.Snapshot
+	nextID      uint64
+	cancelled   chan struct{}
+}
+
+func (p *fakeProviders) CurrentProviderRuntime() provider.Snapshot {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return cloneProviderSnapshot(p.current)
+}
+
+func (p *fakeProviders) SubscribeProviderRuntime() (provider.Snapshot, <-chan provider.Snapshot, func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.subscribers == nil {
+		p.subscribers = make(map[uint64]chan provider.Snapshot)
+	}
+	id := p.nextID
+	p.nextID++
+	updates := make(chan provider.Snapshot, 1)
+	p.subscribers[id] = updates
+	var once sync.Once
+	return cloneProviderSnapshot(p.current), updates, func() {
+		once.Do(func() {
+			p.mu.Lock()
+			if update, exists := p.subscribers[id]; exists {
+				delete(p.subscribers, id)
+				close(update)
+			}
+			p.mu.Unlock()
+			p.cancelled <- struct{}{}
+		})
+	}
+}
+
+func (p *fakeProviders) publish(snapshot provider.Snapshot) {
+	p.mu.Lock()
+	p.current = cloneProviderSnapshot(snapshot)
+	for _, subscriber := range p.subscribers {
+		select {
+		case subscriber <- cloneProviderSnapshot(snapshot):
+			continue
+		default:
+		}
+		select {
+		case <-subscriber:
+		default:
+		}
+		subscriber <- cloneProviderSnapshot(snapshot)
+	}
+	p.mu.Unlock()
 }
 
 func disabledPrivacySnapshot() privacy.Snapshot {

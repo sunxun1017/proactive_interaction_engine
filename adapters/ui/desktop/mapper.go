@@ -3,11 +3,13 @@ package desktop
 import (
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"proactive-interaction-engine/adapters/embodiment/webavatar"
 	platformv1 "proactive-interaction-engine/gen/go/proactive/platform/v1"
 	"proactive-interaction-engine/internal/application/privacy"
+	"proactive-interaction-engine/internal/runtime/provider"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -134,6 +136,109 @@ func permissionToWire(input privacy.Permission) (platformv1.DesktopPermission, e
 		return platformv1.DesktopPermission_DESKTOP_PERMISSION_SPEECH_TRANSCRIPTION, nil
 	default:
 		return platformv1.DesktopPermission_DESKTOP_PERMISSION_UNSPECIFIED, errors.New("unknown privacy permission")
+	}
+}
+
+func providersToWire(snapshot provider.Snapshot) ([]*platformv1.ProviderRuntime, error) {
+	seen := make(map[string]struct{}, len(snapshot.Providers))
+	output := make([]*platformv1.ProviderRuntime, 0, len(snapshot.Providers))
+	for _, runtime := range snapshot.Providers {
+		if strings.TrimSpace(runtime.ProviderID) == "" || runtime.ProviderID != strings.TrimSpace(runtime.ProviderID) {
+			return nil, errors.New("provider id is required")
+		}
+		if _, exists := seen[runtime.ProviderID]; exists {
+			return nil, errors.New("duplicate provider runtime")
+		}
+		seen[runtime.ProviderID] = struct{}{}
+		state, err := providerStateToWire(runtime.State)
+		if err != nil {
+			return nil, err
+		}
+		reason, err := providerReasonToWire(runtime.Reason)
+		if err != nil {
+			return nil, err
+		}
+		if !validProviderStateReason(runtime.State, runtime.Reason) {
+			return nil, errors.New("invalid provider state and reason")
+		}
+		updatedAt, err := requiredTimestamp(runtime.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		output = append(output, &platformv1.ProviderRuntime{
+			ProviderId: runtime.ProviderID,
+			State:      state,
+			Reason:     reason,
+			UpdatedAt:  updatedAt,
+		})
+	}
+	sort.Slice(output, func(left, right int) bool {
+		return output[left].GetProviderId() < output[right].GetProviderId()
+	})
+	return output, nil
+}
+
+func providerStateToWire(input provider.State) (platformv1.ProviderRuntimeState, error) {
+	switch input {
+	case provider.Disabled:
+		return platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DISABLED, nil
+	case provider.Starting:
+		return platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_STARTING, nil
+	case provider.Running:
+		return platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_RUNNING, nil
+	case provider.Degraded:
+		return platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DEGRADED, nil
+	case provider.Stopping:
+		return platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_STOPPING, nil
+	default:
+		return platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_UNSPECIFIED, errors.New("unknown provider state")
+	}
+}
+
+func providerReasonToWire(input provider.Reason) (platformv1.ProviderRuntimeReason, error) {
+	switch input {
+	case provider.ReasonNone:
+		return platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_NONE, nil
+	case provider.ReasonDisabledByUser:
+		return platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_DISABLED_BY_USER, nil
+	case provider.ReasonPermissionDenied:
+		return platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_PERMISSION_DENIED, nil
+	case provider.ReasonDeviceUnavailable:
+		return platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_DEVICE_UNAVAILABLE, nil
+	case provider.ReasonDependencyUnavailable:
+		return platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_DEPENDENCY_UNAVAILABLE, nil
+	case provider.ReasonModelUnavailable:
+		return platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_MODEL_UNAVAILABLE, nil
+	case provider.ReasonInternalError:
+		return platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_INTERNAL_ERROR, nil
+	case provider.ReasonShuttingDown:
+		return platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_SHUTTING_DOWN, nil
+	default:
+		return platformv1.ProviderRuntimeReason_PROVIDER_RUNTIME_REASON_UNSPECIFIED, errors.New("unknown provider reason")
+	}
+}
+
+func validProviderStateReason(state provider.State, reason provider.Reason) bool {
+	switch state {
+	case provider.Disabled:
+		return reason == provider.ReasonDisabledByUser
+	case provider.Starting, provider.Running:
+		return reason == provider.ReasonNone
+	case provider.Degraded:
+		switch reason {
+		case provider.ReasonPermissionDenied,
+			provider.ReasonDeviceUnavailable,
+			provider.ReasonDependencyUnavailable,
+			provider.ReasonModelUnavailable,
+			provider.ReasonInternalError:
+			return true
+		default:
+			return false
+		}
+	case provider.Stopping:
+		return reason == provider.ReasonShuttingDown
+	default:
+		return false
 	}
 }
 

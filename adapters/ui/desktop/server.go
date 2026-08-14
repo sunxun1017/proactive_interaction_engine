@@ -13,6 +13,7 @@ import (
 	"proactive-interaction-engine/internal/application/privacy"
 	"proactive-interaction-engine/internal/domain/control"
 	"proactive-interaction-engine/internal/domain/fault"
+	"proactive-interaction-engine/internal/runtime/provider"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -50,6 +51,7 @@ type Server struct {
 	subjectID   string
 	avatar      AvatarSource
 	permissions PermissionService
+	providers   provider.Source
 	controls    ControlSubmitter
 	authorizer  TransportAuthorizer
 	clock       port.Clock
@@ -59,6 +61,7 @@ type Server struct {
 	hasSourceTuple bool
 	sourceAvatar   uint64
 	sourcePrivacy  uint64
+	sourceProvider uint64
 	permissionSubs map[uint64]chan struct{}
 	nextSubID      uint64
 }
@@ -68,6 +71,7 @@ func NewServer(
 	subjectID string,
 	avatar AvatarSource,
 	permissions PermissionService,
+	providers provider.Source,
 	controls ControlSubmitter,
 	authorizer TransportAuthorizer,
 	clock port.Clock,
@@ -76,13 +80,14 @@ func NewServer(
 	if strings.TrimSpace(subjectID) == "" || subjectID != strings.TrimSpace(subjectID) {
 		return nil, fault.New(fault.InvalidInput, op, errors.New("subject id is required"))
 	}
-	if isNil(avatar) || isNil(permissions) || isNil(controls) || isNil(authorizer) || isNil(clock) {
-		return nil, fault.New(fault.InvalidInput, op, errors.New("avatar, permissions, controls, authorizer, and clock are required"))
+	if isNil(avatar) || isNil(permissions) || isNil(providers) || isNil(controls) || isNil(authorizer) || isNil(clock) {
+		return nil, fault.New(fault.InvalidInput, op, errors.New("avatar, permissions, providers, controls, authorizer, and clock are required"))
 	}
 	return &Server{
 		subjectID:      subjectID,
 		avatar:         avatar,
 		permissions:    permissions,
+		providers:      providers,
 		controls:       controls,
 		authorizer:     authorizer,
 		clock:          clock,
@@ -97,7 +102,7 @@ func (s *Server) GetState(ctx context.Context, request *platformv1.GetStateReque
 	if err := validateProtocol(request.GetProtocolVersion()); err != nil {
 		return nil, err
 	}
-	state, err := s.currentState(ctx, s.avatar.Current(), nil)
+	state, err := s.currentState(ctx, s.avatar.Current(), nil, s.providers.CurrentProviderRuntime())
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +128,7 @@ func (s *Server) SetPermission(ctx context.Context, request *platformv1.SetPermi
 		return nil, grpcFault(err)
 	}
 	s.notifyPermissionSubscribers()
-	state, err := s.currentState(ctx, s.avatar.Current(), &snapshot)
+	state, err := s.currentState(ctx, s.avatar.Current(), &snapshot, s.providers.CurrentProviderRuntime())
 	if err != nil {
 		return nil, err
 	}
@@ -171,11 +176,13 @@ func (s *Server) WatchState(request *platformv1.WatchStateRequest, stream platfo
 
 	avatar, avatarUpdates, cancelAvatar := s.avatar.Subscribe()
 	defer cancelAvatar()
+	providers, providerUpdates, cancelProviders := s.providers.SubscribeProviderRuntime()
+	defer cancelProviders()
 	permissionUpdates, cancelPermission := s.subscribePermissions()
 	defer cancelPermission()
 
 	sendCurrent := func(update webavatar.Update) error {
-		state, err := s.currentState(ctx, update, nil)
+		state, err := s.currentState(ctx, update, nil, providers)
 		if err != nil {
 			return err
 		}
@@ -207,11 +214,24 @@ func (s *Server) WatchState(request *platformv1.WatchStateRequest, stream platfo
 			if err := sendCurrent(avatar); err != nil {
 				return err
 			}
+		case update, ok := <-providerUpdates:
+			if !ok {
+				return status.Error(codes.Unavailable, "provider state source closed")
+			}
+			providers = cloneProviderSnapshot(update)
+			if err := sendCurrent(avatar); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-func (s *Server) currentState(ctx context.Context, avatar webavatar.Update, knownPermissions *privacy.Snapshot) (*platformv1.DesktopState, error) {
+func (s *Server) currentState(
+	ctx context.Context,
+	avatar webavatar.Update,
+	knownPermissions *privacy.Snapshot,
+	providers provider.Snapshot,
+) (*platformv1.DesktopState, error) {
 	permissions := privacy.Snapshot{}
 	if knownPermissions != nil {
 		permissions = clonePrivacySnapshot(*knownPermissions)
@@ -230,23 +250,28 @@ func (s *Server) currentState(ctx context.Context, avatar webavatar.Update, know
 	if err != nil {
 		return nil, status.Error(codes.Internal, "invalid permission state source")
 	}
-	revision := s.compositeRevision(avatar.Revision, permissions.Revision)
+	providerMessages, err := providersToWire(providers)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "invalid provider state source")
+	}
+	revision := s.compositeRevision(avatar.Revision, permissions.Revision, providers.Revision)
 	return &platformv1.DesktopState{
 		Revision:    revision,
 		Avatar:      avatarMessage,
 		Permissions: permissionMessages,
-		Providers:   nil,
+		Providers:   providerMessages,
 	}, nil
 }
 
-func (s *Server) compositeRevision(avatarRevision, privacyRevision uint64) uint64 {
+func (s *Server) compositeRevision(avatarRevision, privacyRevision, providerRevision uint64) uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.hasSourceTuple || s.sourceAvatar != avatarRevision || s.sourcePrivacy != privacyRevision {
+	if !s.hasSourceTuple || s.sourceAvatar != avatarRevision || s.sourcePrivacy != privacyRevision || s.sourceProvider != providerRevision {
 		s.revision++
 		s.hasSourceTuple = true
 		s.sourceAvatar = avatarRevision
 		s.sourcePrivacy = privacyRevision
+		s.sourceProvider = providerRevision
 	}
 	return s.revision
 }
@@ -315,5 +340,10 @@ func isNil(value any) bool {
 
 func clonePrivacySnapshot(snapshot privacy.Snapshot) privacy.Snapshot {
 	snapshot.Grants = append([]privacy.Grant(nil), snapshot.Grants...)
+	return snapshot
+}
+
+func cloneProviderSnapshot(snapshot provider.Snapshot) provider.Snapshot {
+	snapshot.Providers = append([]provider.Runtime(nil), snapshot.Providers...)
 	return snapshot
 }
