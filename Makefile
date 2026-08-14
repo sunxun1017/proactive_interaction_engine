@@ -1,7 +1,7 @@
 GO ?= go
 BUF ?= buf
 
-.PHONY: fmt fmt-check vet test race architecture proto proto-generate proto-check web-build web-check staticcheck check simulator conformance docker-check
+.PHONY: fmt fmt-check vet test race architecture proto proto-generate proto-check web-build web-check media-env media-test staticcheck check simulator conformance docker-check
 
 fmt:
 	gofmt -w $$(find . -type f -name '*.go' -not -path './gen/*')
@@ -38,6 +38,14 @@ web-build:
 web-check:
 	GOOS=js GOARCH=wasm $(GO) build -trimpath -o /tmp/proactive-panel.wasm ./web/desktop/cmd/panel
 	GOOS=js GOARCH=wasm $(GO) vet ./web/desktop/cmd/panel
+
+media-env:
+	/usr/bin/python3 -m virtualenv --clear .venv-media
+	.venv-media/bin/python -m pip install --requirement workers/requirements-media.txt
+	.venv-media/bin/python -c 'import cv2, grpc, numpy, webrtcvad'
+
+media-test:
+	PYTHONPATH="$(CURDIR)/gen/python:$(CURDIR)" .venv-media/bin/python -m unittest discover -s workers -p 'test_*.py'
 
 staticcheck:
 	staticcheck ./...
