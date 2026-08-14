@@ -17,15 +17,24 @@ type Config struct {
 	SubjectID              string
 	ListenAddress          string
 	PrivacyFile            string
+	ScenarioFile           string
 	WASMFile               string
 	WASMExecFile           string
 	TTSBinary              string
+	RuntimeBaseDir         string
+	MediaPython            string
+	MediaRoot              string
+	CameraDevice           string
+	ParecBinary            string
 	ReturnAbsenceThreshold time.Duration
 	RejectionCooldown      time.Duration
 	NoResponseCooldown     time.Duration
 	ActionTimeout          time.Duration
 	ExternalCallTimeout    time.Duration
 	ShutdownTimeout        time.Duration
+	ProviderLeaseDuration  time.Duration
+	ProviderHealthInterval time.Duration
+	WorkerStopTimeout      time.Duration
 }
 
 func (c Config) Validate() error {
@@ -50,8 +59,14 @@ func (c Config) Validate() error {
 		path  string
 	}{
 		{label: "privacy file", path: c.PrivacyFile},
+		{label: "scenario file", path: c.ScenarioFile},
 		{label: "WASM file", path: c.WASMFile},
 		{label: "wasm_exec file", path: c.WASMExecFile},
+		{label: "runtime base directory", path: c.RuntimeBaseDir},
+		{label: "media Python", path: c.MediaPython},
+		{label: "media root", path: c.MediaRoot},
+		{label: "camera device", path: c.CameraDevice},
+		{label: "parec binary", path: c.ParecBinary},
 	} {
 		if strings.TrimSpace(item.path) == "" || !filepath.IsAbs(item.path) {
 			return fault.New(fault.InvalidInput, op, fmt.Errorf("%s must be an absolute path", item.label))
@@ -61,7 +76,8 @@ func (c Config) Validate() error {
 		return fault.New(fault.InvalidInput, op, errors.New("TTS binary must be an absolute path"))
 	}
 	if c.ReturnAbsenceThreshold <= 0 || c.RejectionCooldown <= 0 || c.NoResponseCooldown <= 0 ||
-		c.ActionTimeout <= 0 || c.ExternalCallTimeout <= 0 || c.ShutdownTimeout <= 0 {
+		c.ActionTimeout <= 0 || c.ExternalCallTimeout <= 0 || c.ShutdownTimeout <= 0 ||
+		c.ProviderLeaseDuration <= 0 || c.ProviderHealthInterval <= 0 || c.WorkerStopTimeout <= 0 {
 		return fault.New(fault.InvalidInput, op, errors.New("desktop durations must be positive"))
 	}
 	return nil

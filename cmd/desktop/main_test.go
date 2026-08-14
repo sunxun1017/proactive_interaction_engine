@@ -26,15 +26,24 @@ func TestConfigValidationFailsBeforeExternalWork(t *testing.T) {
 		{name: "non loopback listen", mutate: func(config *Config) { config.ListenAddress = "0.0.0.0:0" }},
 		{name: "hostname listen", mutate: func(config *Config) { config.ListenAddress = "localhost:0" }},
 		{name: "relative privacy", mutate: func(config *Config) { config.PrivacyFile = "privacy.json" }},
+		{name: "relative scenario", mutate: func(config *Config) { config.ScenarioFile = "scenario.yaml" }},
 		{name: "relative wasm", mutate: func(config *Config) { config.WASMFile = "app.wasm" }},
 		{name: "relative wasm exec", mutate: func(config *Config) { config.WASMExecFile = "wasm_exec.js" }},
 		{name: "relative tts", mutate: func(config *Config) { config.TTSBinary = "spd-say" }},
+		{name: "relative runtime", mutate: func(config *Config) { config.RuntimeBaseDir = "run" }},
+		{name: "relative media python", mutate: func(config *Config) { config.MediaPython = "python" }},
+		{name: "relative media root", mutate: func(config *Config) { config.MediaRoot = "." }},
+		{name: "relative camera", mutate: func(config *Config) { config.CameraDevice = "video0" }},
+		{name: "relative parec", mutate: func(config *Config) { config.ParecBinary = "parec" }},
 		{name: "zero return threshold", mutate: func(config *Config) { config.ReturnAbsenceThreshold = 0 }},
 		{name: "zero rejection cooldown", mutate: func(config *Config) { config.RejectionCooldown = 0 }},
 		{name: "zero no response cooldown", mutate: func(config *Config) { config.NoResponseCooldown = 0 }},
 		{name: "zero action timeout", mutate: func(config *Config) { config.ActionTimeout = 0 }},
 		{name: "zero external timeout", mutate: func(config *Config) { config.ExternalCallTimeout = 0 }},
 		{name: "zero shutdown timeout", mutate: func(config *Config) { config.ShutdownTimeout = 0 }},
+		{name: "zero provider lease", mutate: func(config *Config) { config.ProviderLeaseDuration = 0 }},
+		{name: "zero health interval", mutate: func(config *Config) { config.ProviderHealthInterval = 0 }},
+		{name: "zero worker stop timeout", mutate: func(config *Config) { config.WorkerStopTimeout = 0 }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			config := valid
@@ -114,6 +123,12 @@ func TestBuildRunsPanelAndTypedGRPCWebThenShutsDown(t *testing.T) {
 	}
 	if state := stateResponse.Msg.GetState(); state.GetRevision() == 0 || state.GetAvatar().GetMode() != platformv1.AvatarMode_AVATAR_MODE_IDLE || len(state.GetPermissions()) != 8 {
 		t.Fatalf("GetState() = %#v, want initial IDLE with 8 permissions", state)
+	} else if len(state.GetProviders()) != 2 ||
+		state.GetProviders()[0].GetProviderId() != "desktop-presence" ||
+		state.GetProviders()[0].GetState() != platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DISABLED ||
+		state.GetProviders()[1].GetProviderId() != "desktop-vad" ||
+		state.GetProviders()[1].GetState() != platformv1.ProviderRuntimeState_PROVIDER_RUNTIME_STATE_DISABLED {
+		t.Fatalf("GetState() providers = %#v, want two disabled media providers", state.GetProviders())
 	}
 
 	cancel()
@@ -127,25 +142,76 @@ func TestBuildRunsPanelAndTypedGRPCWebThenShutsDown(t *testing.T) {
 	}
 }
 
+func TestMediaWorkerSpecsAreExplicitAndUsePrivateUDS(t *testing.T) {
+	config := testConfig(t)
+	specs := mediaWorkerSpecs(config, "unix:///run/user/1000/private/workers.sock")
+	if len(specs) != 2 {
+		t.Fatalf("mediaWorkerSpecs() = %#v, want two", specs)
+	}
+	for _, spec := range specs {
+		if spec.Command != config.MediaPython || spec.WorkingDir != config.MediaRoot || len(spec.Env) != 2 {
+			t.Fatalf("worker spec = %#v, want explicit Python environment", spec)
+		}
+		joined := strings.Join(spec.Args, " ")
+		if !strings.Contains(joined, "--grpc-address unix:///run/user/1000/private/workers.sock") || strings.Contains(joined, "UserReply") {
+			t.Fatalf("worker args = %q, want only private UDS transport", joined)
+		}
+	}
+	if specs[0].ProviderID != "desktop-presence" || specs[1].ProviderID != "desktop-vad" {
+		t.Fatalf("provider order = %#v", specs)
+	}
+}
+
 func testConfig(t *testing.T) Config {
 	t.Helper()
 	root := t.TempDir()
 	wasm := filepath.Join(root, "app.wasm")
 	wasmExec := filepath.Join(root, "wasm_exec.js")
+	scenario := filepath.Join(root, "scenario.yaml")
+	runtimeDir, err := os.MkdirTemp("/tmp", "pie-")
+	if err != nil {
+		t.Fatalf("MkdirTemp(runtime) error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
 	writeAsset(t, wasm, []byte{0, 'a', 's', 'm'})
 	writeAsset(t, wasmExec, []byte("globalThis.Go = class Go {};"))
+	writeAsset(t, scenario, []byte(`schema_version: v1
+scenario:
+  id: anonymous-return-welcome
+  version: v1
+  required:
+    - capability: PERSON_PRESENCE
+      provider_id: desktop-presence
+    - capability: VOICE_ACTIVITY
+      provider_id: desktop-vad
+    - capability: DISPLAY_TEXT
+      provider_id: web-avatar
+  optional:
+    - capability: SPEECH_SYNTHESIS
+      provider_id: speech-dispatcher
+      fallback: VISUAL_ONLY
+`))
 	return Config{
 		SubjectID:              "user-1",
 		ListenAddress:          "127.0.0.1:0",
 		PrivacyFile:            filepath.Join(root, "private", "permissions.json"),
+		ScenarioFile:           scenario,
 		WASMFile:               wasm,
 		WASMExecFile:           wasmExec,
+		RuntimeBaseDir:         runtimeDir,
+		MediaPython:            "/usr/bin/python3.10",
+		MediaRoot:              root,
+		CameraDevice:           "/dev/video0",
+		ParecBinary:            "/usr/bin/pacat",
 		ReturnAbsenceThreshold: 30 * time.Minute,
 		RejectionCooldown:      30 * time.Minute,
 		NoResponseCooldown:     5 * time.Minute,
 		ActionTimeout:          2 * time.Second,
 		ExternalCallTimeout:    time.Second,
 		ShutdownTimeout:        time.Second,
+		ProviderLeaseDuration:  15 * time.Second,
+		ProviderHealthInterval: time.Second,
+		WorkerStopTimeout:      time.Second,
 	}
 }
 

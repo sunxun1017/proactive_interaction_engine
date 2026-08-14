@@ -21,6 +21,7 @@ import (
 	"proactive-interaction-engine/internal/domain/control"
 	"proactive-interaction-engine/internal/domain/fault"
 	engineclock "proactive-interaction-engine/internal/runtime/clock"
+	"proactive-interaction-engine/internal/runtime/provider"
 )
 
 var _ platformv1connect.DesktopControlServiceHandler = (*Bridge)(nil)
@@ -212,7 +213,7 @@ func newHarness(t *testing.T, overrideRemoteAddr string) *bridgeHarness {
 	if err != nil {
 		t.Fatalf("desktop.NewLoopbackAuthorizer() error = %v", err)
 	}
-	service, err := desktop.NewServer("user-1", avatar, permissions, controls, authorizer, clock)
+	service, err := desktop.NewServer("user-1", avatar, permissions, bridgeProviders{now: now}, controls, authorizer, clock)
 	if err != nil {
 		t.Fatalf("desktop.NewServer() error = %v", err)
 	}
@@ -285,6 +286,18 @@ type bridgePermissions struct {
 	snapshot  privacy.Snapshot
 	changes   []privacy.ChangePermission
 	changeErr error
+}
+
+type bridgeProviders struct{ now time.Time }
+
+func (p bridgeProviders) CurrentProviderRuntime() provider.Snapshot {
+	return provider.Snapshot{Revision: 1, Providers: []provider.Runtime{{
+		ProviderID: "desktop-presence", State: provider.Disabled, Reason: provider.ReasonDisabledByUser, UpdatedAt: p.now,
+	}}}
+}
+
+func (p bridgeProviders) SubscribeProviderRuntime() (provider.Snapshot, <-chan provider.Snapshot, func()) {
+	return p.CurrentProviderRuntime(), make(chan provider.Snapshot), func() {}
 }
 
 func (p *bridgePermissions) Current(ctx context.Context) (privacy.Snapshot, error) {
