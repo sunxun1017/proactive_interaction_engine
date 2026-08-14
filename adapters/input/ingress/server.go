@@ -29,6 +29,7 @@ const (
 	reasonReplyWindowClosed        = "REPLY_WINDOW_CLOSED"
 	reasonTTLExpired               = "TTL_EXPIRED"
 	reasonEngineStaleInput         = "ENGINE_STALE_INPUT"
+	reasonScenarioBlocked          = "SCENARIO_BLOCKED"
 )
 
 // ProviderLeaseReader is the immutable registry view consumed by ingress.
@@ -48,15 +49,22 @@ type ReplyWindowReader interface {
 	CurrentReplyAcceptanceWindow() (application.ReplyAcceptanceWindow, bool)
 }
 
+// ActivationReader exposes only whether the selected scenario's required
+// platform capabilities are currently ready.
+type ActivationReader interface {
+	CurrentActivation() readiness.Activation
+}
+
 // Server implements the observation ingress transport boundary.
 type Server struct {
 	platformv1.UnimplementedObservationIngressServiceServer
 
-	leases    ProviderLeaseReader
-	submitter ObservationSubmitter
-	windows   ReplyWindowReader
-	clock     port.Clock
-	selected  map[readiness.CapabilityKind]string
+	leases     ProviderLeaseReader
+	submitter  ObservationSubmitter
+	windows    ReplyWindowReader
+	activation ActivationReader
+	clock      port.Clock
+	selected   map[readiness.CapabilityKind]string
 }
 
 // NewServer constructs an ingress server for one validated, explicitly
@@ -65,11 +73,12 @@ func NewServer(
 	leases ProviderLeaseReader,
 	submitter ObservationSubmitter,
 	windows ReplyWindowReader,
+	activation ActivationReader,
 	clock port.Clock,
 	scenario readiness.ScenarioRequirements,
 ) (*Server, error) {
-	if isNilDependency(leases) || isNilDependency(submitter) || isNilDependency(windows) || isNilDependency(clock) {
-		return nil, errors.New("lease reader, observation submitter, reply window reader, and clock are required")
+	if isNilDependency(leases) || isNilDependency(submitter) || isNilDependency(windows) || isNilDependency(activation) || isNilDependency(clock) {
+		return nil, errors.New("lease reader, observation submitter, reply window reader, activation reader, and clock are required")
 	}
 	copied := readiness.ScenarioRequirements{
 		ID:       scenario.ID,
@@ -87,11 +96,12 @@ func NewServer(
 		selected[optional.Kind] = optional.ProviderID
 	}
 	return &Server{
-		leases:    leases,
-		submitter: submitter,
-		windows:   windows,
-		clock:     clock,
-		selected:  selected,
+		leases:     leases,
+		submitter:  submitter,
+		windows:    windows,
+		activation: activation,
+		clock:      clock,
+		selected:   selected,
 	}, nil
 }
 
@@ -115,6 +125,10 @@ func (s *Server) Publish(ctx context.Context, request *platformv1.PublishRequest
 	}
 	if mapped.rejectedReason != "" {
 		return rejected(mapped.input.ID, mapped.rejectedReason), nil
+	}
+	activation := s.activation.CurrentActivation()
+	if activation.Status != readiness.Ready && activation.Status != readiness.Degraded {
+		return rejected(mapped.input.ID, reasonScenarioBlocked), nil
 	}
 
 	now := s.clock.Now()

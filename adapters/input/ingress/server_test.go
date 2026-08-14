@@ -25,6 +25,7 @@ var (
 	_ ProviderLeaseReader                        = (*fakeLeaseReader)(nil)
 	_ ObservationSubmitter                       = (*fakeSubmitter)(nil)
 	_ ReplyWindowReader                          = (*fakeWindowReader)(nil)
+	_ ActivationReader                           = staticActivation{}
 	_ platformv1.ObservationIngressServiceServer = (*Server)(nil)
 )
 
@@ -37,22 +38,24 @@ func TestNewServerValidatesDependenciesAndCopiesScenario(t *testing.T) {
 	scenario := validScenario()
 
 	tests := []struct {
-		name      string
-		leases    ProviderLeaseReader
-		submitter ObservationSubmitter
-		windows   ReplyWindowReader
-		clock     *engineclock.Fake
-		scenario  readiness.ScenarioRequirements
+		name       string
+		leases     ProviderLeaseReader
+		submitter  ObservationSubmitter
+		windows    ReplyWindowReader
+		activation ActivationReader
+		clock      *engineclock.Fake
+		scenario   readiness.ScenarioRequirements
 	}{
-		{name: "nil leases", submitter: submitter, windows: windows, clock: clock, scenario: scenario},
-		{name: "nil submitter", leases: leases, windows: windows, clock: clock, scenario: scenario},
-		{name: "nil windows", leases: leases, submitter: submitter, clock: clock, scenario: scenario},
-		{name: "nil clock", leases: leases, submitter: submitter, windows: windows, scenario: scenario},
-		{name: "invalid scenario", leases: leases, submitter: submitter, windows: windows, clock: clock},
+		{name: "nil leases", submitter: submitter, windows: windows, activation: staticActivation{readiness.Ready}, clock: clock, scenario: scenario},
+		{name: "nil submitter", leases: leases, windows: windows, activation: staticActivation{readiness.Ready}, clock: clock, scenario: scenario},
+		{name: "nil windows", leases: leases, submitter: submitter, activation: staticActivation{readiness.Ready}, clock: clock, scenario: scenario},
+		{name: "nil activation", leases: leases, submitter: submitter, windows: windows, clock: clock, scenario: scenario},
+		{name: "nil clock", leases: leases, submitter: submitter, windows: windows, activation: staticActivation{readiness.Ready}, scenario: scenario},
+		{name: "invalid scenario", leases: leases, submitter: submitter, windows: windows, activation: staticActivation{readiness.Ready}, clock: clock},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			server, err := NewServer(test.leases, test.submitter, test.windows, test.clock, test.scenario)
+			server, err := NewServer(test.leases, test.submitter, test.windows, test.activation, test.clock, test.scenario)
 			if err == nil || server != nil {
 				t.Fatalf("NewServer() = %#v, %v, want nil and error", server, err)
 			}
@@ -63,6 +66,20 @@ func TestNewServerValidatesDependenciesAndCopiesScenario(t *testing.T) {
 	scenario.Required[0].ProviderID = "mutated-after-construction"
 	receipt := publishReceipt(t, server, validPresenceRequest(now))
 	requireReceipt(t, receipt, platformv1.ReceiptStatus_RECEIPT_STATUS_ACCEPTED, "")
+}
+
+func TestPublishFailsClosedWhileRequiredScenarioCapabilitiesAreBlocked(t *testing.T) {
+	now := ingressTestNow()
+	submitter := &fakeSubmitter{}
+	server, err := NewServer(validLeaseReader(now), submitter, &fakeWindowReader{}, staticActivation{readiness.Blocked}, engineclock.NewFake(now), validScenario())
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+	receipt := publishReceipt(t, server, validPresenceRequest(now))
+	requireReceipt(t, receipt, platformv1.ReceiptStatus_RECEIPT_STATUS_REJECTED, "SCENARIO_BLOCKED")
+	if len(submitter.inputs) != 0 {
+		t.Fatalf("blocked scenario submitted %#v", submitter.inputs)
+	}
 }
 
 func TestPublishMapsPresenceAndBusyToCanonicalObservation(t *testing.T) {
@@ -317,7 +334,7 @@ func TestPublishHonorsCancelledContextWithoutSubmitting(t *testing.T) {
 
 func newTestServer(t *testing.T, leases ProviderLeaseReader, submitter ObservationSubmitter, windows ReplyWindowReader, clock *engineclock.Fake, scenario readiness.ScenarioRequirements) *Server {
 	t.Helper()
-	server, err := NewServer(leases, submitter, windows, clock, scenario)
+	server, err := NewServer(leases, submitter, windows, staticActivation{readiness.Ready}, clock, scenario)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
@@ -442,6 +459,12 @@ func ingressTestNow() time.Time {
 
 type fakeLeaseReader struct {
 	snapshots map[string]readiness.ProviderSnapshot
+}
+
+type staticActivation struct{ status readiness.ActivationStatus }
+
+func (s staticActivation) CurrentActivation() readiness.Activation {
+	return readiness.Activation{Status: s.status}
 }
 
 func (f *fakeLeaseReader) LeaseSnapshot(leaseID string) (readiness.ProviderSnapshot, bool) {

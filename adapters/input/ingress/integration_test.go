@@ -16,6 +16,7 @@ import (
 	memorystorage "proactive-interaction-engine/adapters/storage/memory"
 	platformv1 "proactive-interaction-engine/gen/go/proactive/platform/v1"
 	application "proactive-interaction-engine/internal/application/engine"
+	"proactive-interaction-engine/internal/application/readiness"
 	"proactive-interaction-engine/internal/domain/behavior"
 	"proactive-interaction-engine/internal/domain/episode"
 	"proactive-interaction-engine/internal/domain/event"
@@ -60,7 +61,7 @@ func TestRegisteredWorkersCompleteAcceptedWelcomeThroughIngress(t *testing.T) {
 	}
 	stopRunner := startIngressIntegrationRunner(t, runner)
 
-	ingressServer, err := NewServer(registry, runner, core, clock, loaded.Requirements)
+	ingressServer, err := NewServer(registry, runner, core, staticActivation{readiness.Degraded}, clock, loaded.Requirements)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
