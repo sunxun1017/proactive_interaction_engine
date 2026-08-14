@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"reflect"
+	"strconv"
 	"sync"
 	"syscall"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"proactive-interaction-engine/internal/application/privacy"
 	"proactive-interaction-engine/internal/application/readiness"
+	"proactive-interaction-engine/internal/domain/fault"
 	engineclock "proactive-interaction-engine/internal/runtime/clock"
 	"proactive-interaction-engine/internal/runtime/provider"
 )
@@ -42,10 +44,13 @@ func TestSupervisorStartsOnlyAfterDurablePermissionAndTracksHealthyLease(t *test
 	if spec.ProviderID != "desktop-presence" || spec.Permission != privacy.CameraCapture {
 		t.Fatalf("started spec = %#v", spec)
 	}
+	if spec.InstanceID != "desktop-presence-instance-1" {
+		t.Fatalf("instance id = %q", spec.InstanceID)
+	}
 	requireProviderState(t, supervisor, "desktop-presence", provider.Starting, provider.ReasonNone)
 
 	leases.publish([]readiness.ProviderSnapshot{{
-		ProviderID: "desktop-presence", InstanceID: "camera-1", ProtocolVersion: "v1", ImplementationVersion: "test",
+		ProviderID: "desktop-presence", InstanceID: spec.InstanceID, ProtocolVersion: "v1", ImplementationVersion: "test",
 		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy, LeaseExpiresAt: now.Add(time.Minute),
 	}})
 	requireProviderState(t, supervisor, "desktop-presence", provider.Running, provider.ReasonNone)
@@ -142,7 +147,8 @@ func TestSupervisorHealthCheckDegradesAtLeaseDeadline(t *testing.T) {
 	}
 	leases := newFakeLeases()
 	launcher := &fakeLauncher{starts: make(chan Spec, 2)}
-	supervisor, err := New(Config{StopTimeout: time.Second, HealthCheckInterval: time.Second}, permissions, leases, launcher, clock, []Spec{
+	config := testConfig()
+	supervisor, err := New(config, permissions, leases, launcher, clock, []Spec{
 		{ProviderID: "desktop-presence", Permission: privacy.CameraCapture, Command: "/python"},
 		{ProviderID: "desktop-vad", Permission: privacy.MicrophoneCapture, Command: "/python"},
 	})
@@ -153,9 +159,9 @@ func TestSupervisorHealthCheckDegradesAtLeaseDeadline(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- supervisor.Run(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })
-	receiveStart(t, launcher.starts)
+	spec := receiveStart(t, launcher.starts)
 	leases.publish([]readiness.ProviderSnapshot{{
-		ProviderID: "desktop-presence", InstanceID: "camera-1", ProtocolVersion: "v1", ImplementationVersion: "test",
+		ProviderID: "desktop-presence", InstanceID: spec.InstanceID, ProtocolVersion: "v1", ImplementationVersion: "test",
 		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy, LeaseExpiresAt: now.Add(time.Second),
 	}})
 	requireProviderState(t, supervisor, "desktop-presence", provider.Running, provider.ReasonNone)
@@ -164,16 +170,201 @@ func TestSupervisorHealthCheckDegradesAtLeaseDeadline(t *testing.T) {
 	requireProviderState(t, supervisor, "desktop-presence", provider.Degraded, provider.ReasonDeviceUnavailable)
 }
 
+func TestSupervisorIgnoresLeaseFromPreviousWorkerInstance(t *testing.T) {
+	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	permissions := newPermissionService(t, now)
+	if _, err := permissions.Change(context.Background(), privacy.ChangePermission{Permission: privacy.CameraCapture, Enabled: true}); err != nil {
+		t.Fatalf("seed camera permission: %v", err)
+	}
+	leases := newFakeLeases()
+	leases.publish([]readiness.ProviderSnapshot{{
+		ProviderID: "desktop-presence", InstanceID: "desktop-presence-old", ProtocolVersion: "v1", ImplementationVersion: "test",
+		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy, LeaseExpiresAt: now.Add(time.Minute),
+	}})
+	launcher := &fakeLauncher{starts: make(chan Spec, 2)}
+	supervisor := newTestSupervisor(t, permissions, leases, launcher, now)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- supervisor.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	spec := receiveStart(t, launcher.starts)
+	requireProviderState(t, supervisor, "desktop-presence", provider.Starting, provider.ReasonNone)
+	leases.publish([]readiness.ProviderSnapshot{{
+		ProviderID: "desktop-presence", InstanceID: spec.InstanceID, ProtocolVersion: "v1", ImplementationVersion: "test",
+		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy, LeaseExpiresAt: now.Add(time.Minute),
+	}})
+	requireProviderState(t, supervisor, "desktop-presence", provider.Running, provider.ReasonNone)
+}
+
+func TestSupervisorRestartDoesNotInheritPreviousInstanceHealth(t *testing.T) {
+	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	permissions := newPermissionService(t, now)
+	if _, err := permissions.Change(context.Background(), privacy.ChangePermission{Permission: privacy.CameraCapture, Enabled: true}); err != nil {
+		t.Fatalf("seed camera permission: %v", err)
+	}
+	leases := newFakeLeases()
+	launcher := &fakeLauncher{starts: make(chan Spec, 3)}
+	supervisor := newTestSupervisor(t, permissions, leases, launcher, now)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- supervisor.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	first := receiveStart(t, launcher.starts)
+	leases.publish([]readiness.ProviderSnapshot{{
+		ProviderID: "desktop-presence", InstanceID: first.InstanceID, ProtocolVersion: "v1", ImplementationVersion: "test",
+		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy, LeaseExpiresAt: now.Add(time.Minute),
+	}})
+	requireProviderState(t, supervisor, "desktop-presence", provider.Running, provider.ReasonNone)
+	launcher.process(0).exit(errors.New("camera failed"))
+	requireProviderState(t, supervisor, "desktop-presence", provider.Degraded, provider.ReasonInternalError)
+
+	if _, err := supervisor.Change(context.Background(), privacy.ChangePermission{Permission: privacy.CameraCapture}); err != nil {
+		t.Fatalf("disable camera: %v", err)
+	}
+	if _, err := supervisor.Change(context.Background(), privacy.ChangePermission{Permission: privacy.CameraCapture, Enabled: true}); err != nil {
+		t.Fatalf("retry camera: %v", err)
+	}
+	second := receiveStart(t, launcher.starts)
+	if second.InstanceID == first.InstanceID {
+		t.Fatalf("restarted instance id = %q, want a fresh value", second.InstanceID)
+	}
+	requireProviderState(t, supervisor, "desktop-presence", provider.Starting, provider.ReasonNone)
+}
+
+func TestSupervisorReconcilesPersistedPermissionInsteadOfChangeReturnOrder(t *testing.T) {
+	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	permissions := newReorderingPermissions()
+	supervisor, err := New(testConfig(), permissions, newFakeLeases(), &fakeLauncher{starts: make(chan Spec, 2)}, engineclock.NewFake(now), testSpecs())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	enableDone := make(chan error, 1)
+	go func() {
+		_, changeErr := supervisor.Change(context.Background(), privacy.ChangePermission{Permission: privacy.CameraCapture, Enabled: true})
+		enableDone <- changeErr
+	}()
+	<-permissions.enablePersisted
+	if _, err := supervisor.Change(context.Background(), privacy.ChangePermission{Permission: privacy.CameraCapture}); err != nil {
+		t.Fatalf("disable Change() error = %v", err)
+	}
+	close(permissions.releaseEnable)
+	if err := <-enableDone; err != nil {
+		t.Fatalf("enable Change() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- supervisor.Run(ctx) }()
+	for index := 0; index < 2; index++ {
+		select {
+		case <-permissions.currentCalls:
+		case <-time.After(time.Second):
+			t.Fatal("supervisor did not reconcile latest persisted permissions")
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	select {
+	case spec := <-supervisor.launcher.(*fakeLauncher).starts:
+		t.Fatalf("worker started from stale enable completion: %#v", spec)
+	default:
+	}
+}
+
+func TestSupervisorChangeReturnsPersistedSnapshotAfterContextCancellation(t *testing.T) {
+	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	ctx, cancel := context.WithCancel(context.Background())
+	permissions := &cancelingPermissions{cancel: cancel, snapshot: permissionSnapshot(1, true)}
+	supervisor, err := New(testConfig(), permissions, newFakeLeases(), &fakeLauncher{starts: make(chan Spec, 2)}, engineclock.NewFake(now), testSpecs())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	supervisor.reconcile <- struct{}{}
+
+	snapshot, err := supervisor.Change(ctx, privacy.ChangePermission{Permission: privacy.CameraCapture, Enabled: true})
+	if err != nil {
+		t.Fatalf("Change() error after durable save = %v", err)
+	}
+	if snapshot.Revision != 1 || !permissionEnabled(snapshot, privacy.CameraCapture) {
+		t.Fatalf("Change() snapshot = %#v", snapshot)
+	}
+}
+
+func TestSupervisorStopProcessIsBoundedAfterKillFailure(t *testing.T) {
+	closedTimer := make(chan time.Time)
+	close(closedTimer)
+	supervisor := &Supervisor{config: Config{StopTimeout: time.Second, after: func(time.Duration) <-chan time.Time { return closedTimer }}}
+	process := &fakeProcess{done: make(chan error), hangOnSignal: true, killErr: errors.New("kill denied")}
+
+	done := make(chan error, 1)
+	go func() { done <- supervisor.stopProcess(process) }()
+	err := receiveStopResult(t, done)
+	if !fault.IsCode(err, fault.Unavailable) {
+		t.Fatalf("stopProcess() error = %v, want Unavailable", err)
+	}
+	if got := process.killCount(); got != 1 {
+		t.Fatalf("Kill() calls = %d, want 1", got)
+	}
+}
+
+func TestSupervisorStopProcessIsBoundedWhenKilledProcessNeverJoins(t *testing.T) {
+	closedTimer := make(chan time.Time)
+	close(closedTimer)
+	supervisor := &Supervisor{config: Config{StopTimeout: time.Second, after: func(time.Duration) <-chan time.Time { return closedTimer }}}
+	process := &fakeProcess{done: make(chan error), hangOnSignal: true, hangOnKill: true}
+
+	done := make(chan error, 1)
+	go func() { done <- supervisor.stopProcess(process) }()
+	err := receiveStopResult(t, done)
+	if !fault.IsCode(err, fault.DeadlineExceeded) {
+		t.Fatalf("stopProcess() error = %v, want DeadlineExceeded", err)
+	}
+	if got := process.killCount(); got != 1 {
+		t.Fatalf("Kill() calls = %d, want 1", got)
+	}
+}
+
+func receiveStopResult(t *testing.T, done <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(time.Second):
+		t.Fatal("stopProcess() exceeded its shutdown bound")
+		return nil
+	}
+}
+
 func newTestSupervisor(t *testing.T, permissions *privacy.Service, leases *fakeLeases, launcher *fakeLauncher, now time.Time) *Supervisor {
 	t.Helper()
-	supervisor, err := New(Config{StopTimeout: time.Second, HealthCheckInterval: time.Second}, permissions, leases, launcher, engineclock.NewFake(now), []Spec{
-		{ProviderID: "desktop-presence", Permission: privacy.CameraCapture, Command: "/python", Args: []string{"camera.py"}},
-		{ProviderID: "desktop-vad", Permission: privacy.MicrophoneCapture, Command: "/python", Args: []string{"microphone.py"}},
-	})
+	supervisor, err := New(testConfig(), permissions, leases, launcher, engineclock.NewFake(now), testSpecs())
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 	return supervisor
+}
+
+func testSpecs() []Spec {
+	return []Spec{
+		{ProviderID: "desktop-presence", Permission: privacy.CameraCapture, Command: "/python", Args: []string{"camera.py"}},
+		{ProviderID: "desktop-vad", Permission: privacy.MicrophoneCapture, Command: "/python", Args: []string{"microphone.py"}},
+	}
+}
+
+func testConfig() Config {
+	instances := make(map[string]int)
+	return Config{
+		StopTimeout: time.Second, HealthCheckInterval: time.Second,
+		newInstanceID: func(providerID string) (string, error) {
+			instances[providerID]++
+			return providerID + "-instance-" + strconv.Itoa(instances[providerID]), nil
+		},
+	}
 }
 
 func newPermissionService(t *testing.T, now time.Time) *privacy.Service {
@@ -223,6 +414,63 @@ func (m *memoryPermissions) Save(_ context.Context, expected uint64, snapshot pr
 	}
 	m.snapshot = snapshot
 	return nil
+}
+
+type reorderingPermissions struct {
+	mu              sync.Mutex
+	snapshot        privacy.Snapshot
+	enablePersisted chan struct{}
+	releaseEnable   chan struct{}
+	currentCalls    chan struct{}
+}
+
+func newReorderingPermissions() *reorderingPermissions {
+	return &reorderingPermissions{
+		snapshot: permissionSnapshot(0, false), enablePersisted: make(chan struct{}), releaseEnable: make(chan struct{}), currentCalls: make(chan struct{}, 4),
+	}
+}
+
+func (p *reorderingPermissions) Current(context.Context) (privacy.Snapshot, error) {
+	p.mu.Lock()
+	snapshot := p.snapshot
+	snapshot.Grants = append([]privacy.Grant(nil), snapshot.Grants...)
+	p.mu.Unlock()
+	p.currentCalls <- struct{}{}
+	return snapshot, nil
+}
+
+func (p *reorderingPermissions) Change(_ context.Context, command privacy.ChangePermission) (privacy.Snapshot, error) {
+	p.mu.Lock()
+	if command.Enabled {
+		p.snapshot = permissionSnapshot(1, true)
+	} else {
+		p.snapshot = permissionSnapshot(2, false)
+	}
+	snapshot := p.snapshot
+	snapshot.Grants = append([]privacy.Grant(nil), snapshot.Grants...)
+	p.mu.Unlock()
+	if command.Enabled {
+		close(p.enablePersisted)
+		<-p.releaseEnable
+	}
+	return snapshot, nil
+}
+
+type cancelingPermissions struct {
+	cancel   context.CancelFunc
+	snapshot privacy.Snapshot
+}
+
+func (p *cancelingPermissions) Current(context.Context) (privacy.Snapshot, error) {
+	return p.snapshot, nil
+}
+func (p *cancelingPermissions) Change(context.Context, privacy.ChangePermission) (privacy.Snapshot, error) {
+	p.cancel()
+	return p.snapshot, nil
+}
+
+func permissionSnapshot(revision uint64, camera bool) privacy.Snapshot {
+	return privacy.Snapshot{Revision: revision, Grants: []privacy.Grant{{Permission: privacy.CameraCapture, Enabled: camera}}}
 }
 
 type fakeLeases struct {
@@ -283,20 +531,42 @@ func (f *fakeLauncher) process(index int) *fakeProcess {
 }
 
 type fakeProcess struct {
-	mu          sync.Mutex
-	done        chan error
-	sent        bool
-	signalsSeen []os.Signal
+	mu           sync.Mutex
+	done         chan error
+	sent         bool
+	signalsSeen  []os.Signal
+	hangOnSignal bool
+	hangOnKill   bool
+	killErr      error
+	killsSeen    int
 }
 
 func (f *fakeProcess) Signal(signal os.Signal) error {
 	f.mu.Lock()
 	f.signalsSeen = append(f.signalsSeen, signal)
 	f.mu.Unlock()
-	f.exit(nil)
+	if !f.hangOnSignal {
+		f.exit(nil)
+	}
 	return nil
 }
-func (f *fakeProcess) Kill() error        { f.exit(nil); return nil }
+func (f *fakeProcess) Kill() error {
+	f.mu.Lock()
+	f.killsSeen++
+	f.mu.Unlock()
+	if f.killErr != nil {
+		return f.killErr
+	}
+	if !f.hangOnKill {
+		f.exit(nil)
+	}
+	return nil
+}
+func (f *fakeProcess) killCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.killsSeen
+}
 func (f *fakeProcess) Done() <-chan error { return f.done }
 func (f *fakeProcess) exit(err error) {
 	f.mu.Lock()

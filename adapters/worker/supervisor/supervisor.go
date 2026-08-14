@@ -2,6 +2,8 @@ package supervisor
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"os"
 	"reflect"
@@ -26,6 +28,9 @@ type Spec struct {
 	Args       []string
 	WorkingDir string
 	Env        []string
+	// InstanceID is assigned by Supervisor for one process lifetime.
+	// Composition specs must leave it empty.
+	InstanceID string
 }
 
 // Process is a started child process with a single completion signal.
@@ -46,11 +51,19 @@ type LeaseSource interface {
 	RevokeProvider(string) bool
 }
 
+// PermissionService is the persisted desired-state boundary consumed by the
+// supervisor. Permission changes and process reconciliation remain separate.
+type PermissionService interface {
+	Current(context.Context) (privacy.Snapshot, error)
+	Change(context.Context, privacy.ChangePermission) (privacy.Snapshot, error)
+}
+
 // Config bounds graceful worker termination.
 type Config struct {
 	StopTimeout         time.Duration
 	HealthCheckInterval time.Duration
 	after               func(time.Duration) <-chan time.Time
+	newInstanceID       func(string) (string, error)
 }
 
 type controller struct {
@@ -58,6 +71,7 @@ type controller struct {
 	process     Process
 	failed      bool
 	everHealthy bool
+	instanceID  string
 	runtime     provider.Runtime
 }
 
@@ -65,13 +79,12 @@ type controller struct {
 // runtime health without equating permission with provider availability.
 type Supervisor struct {
 	config      Config
-	permissions *privacy.Service
+	permissions PermissionService
 	leases      LeaseSource
 	launcher    Launcher
 	clock       port.Clock
 
-	changes   chan privacy.ChangePermission
-	processes chan struct{}
+	reconcile chan struct{}
 
 	mu          sync.Mutex
 	started     bool
@@ -83,7 +96,7 @@ type Supervisor struct {
 }
 
 // New constructs the explicit camera and microphone worker supervisor.
-func New(config Config, permissions *privacy.Service, leases LeaseSource, launcher Launcher, clock port.Clock, specs []Spec) (*Supervisor, error) {
+func New(config Config, permissions PermissionService, leases LeaseSource, launcher Launcher, clock port.Clock, specs []Spec) (*Supervisor, error) {
 	const op = "create local worker supervisor"
 	if config.StopTimeout <= 0 || config.HealthCheckInterval <= 0 || isNil(permissions) || isNil(leases) || isNil(launcher) || isNil(clock) {
 		return nil, fault.New(fault.InvalidInput, op, errors.New("positive timeout and all dependencies are required"))
@@ -93,6 +106,9 @@ func New(config Config, permissions *privacy.Service, leases LeaseSource, launch
 	}
 	if config.after == nil {
 		config.after = time.After
+	}
+	if config.newInstanceID == nil {
+		config.newInstanceID = randomInstanceID
 	}
 	copied := append([]Spec(nil), specs...)
 	sort.Slice(copied, func(i, j int) bool { return copied[i].ProviderID < copied[j].ProviderID })
@@ -104,8 +120,8 @@ func New(config Config, permissions *privacy.Service, leases LeaseSource, launch
 	}
 	controllers := make([]*controller, 0, len(copied))
 	for _, spec := range copied {
-		if strings.TrimSpace(spec.ProviderID) == "" || spec.ProviderID != strings.TrimSpace(spec.ProviderID) || strings.TrimSpace(spec.Command) == "" {
-			return nil, fault.New(fault.InvalidInput, op, errors.New("provider id and command are required"))
+		if strings.TrimSpace(spec.ProviderID) == "" || spec.ProviderID != strings.TrimSpace(spec.ProviderID) || strings.TrimSpace(spec.Command) == "" || spec.InstanceID != "" {
+			return nil, fault.New(fault.InvalidInput, op, errors.New("provider id and command are required and instance id must be supervisor-owned"))
 		}
 		if spec.Permission != privacy.CameraCapture && spec.Permission != privacy.MicrophoneCapture {
 			return nil, fault.New(fault.InvalidInput, op, errors.New("only camera and microphone capture permissions may own workers"))
@@ -126,7 +142,7 @@ func New(config Config, permissions *privacy.Service, leases LeaseSource, launch
 	}
 	return &Supervisor{
 		config: config, permissions: permissions, leases: leases, launcher: launcher, clock: clock,
-		changes: make(chan privacy.ChangePermission, 16), processes: make(chan struct{}, 1), controllers: controllers,
+		reconcile: make(chan struct{}, 1), controllers: controllers,
 		revision: 1, subs: make(map[uint64]chan provider.Snapshot),
 	}, nil
 }
@@ -142,11 +158,17 @@ func (s *Supervisor) Change(ctx context.Context, command privacy.ChangePermissio
 	if err != nil {
 		return privacy.Snapshot{}, err
 	}
-	select {
-	case s.changes <- command:
-	case <-ctx.Done():
-		return privacy.Snapshot{}, ctx.Err()
+	if !command.Enabled {
+		s.mu.Lock()
+		for _, item := range s.controllers {
+			if item.spec.Permission == command.Permission {
+				item.failed = false
+				break
+			}
+		}
+		s.mu.Unlock()
 	}
+	s.signal(s.reconcile)
 	return snapshot, nil
 }
 
@@ -173,46 +195,38 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		return err
 	}
 	for {
+		firstProcessDone, secondProcessDone := s.processDoneChannels()
 		select {
 		case <-ctx.Done():
-			s.stopAll()
-			return nil
-		case command := <-s.changes:
-			if err := s.reconcilePermission(command.Permission, command.Enabled); err != nil {
-				s.stopAll()
-				return err
+			return s.stopAll()
+		case <-s.reconcile:
+			if err := s.reconcileAll(ctx); err != nil {
+				return errors.Join(err, s.stopAll())
 			}
 		case snapshots, ok := <-leaseUpdates:
 			if !ok {
-				s.stopAll()
-				return fault.New(fault.Unavailable, op, errors.New("capability lease source closed"))
+				return errors.Join(fault.New(fault.Unavailable, op, errors.New("capability lease source closed")), s.stopAll())
 			}
 			s.setLeases(snapshots)
 			if err := s.reconcileAll(ctx); err != nil {
-				s.stopAll()
-				return err
+				return errors.Join(err, s.stopAll())
 			}
-		case <-s.processes:
+		case <-firstProcessDone:
+			s.noteProcessExit(s.controllers[0])
 			if err := s.reconcileAll(ctx); err != nil {
-				s.stopAll()
-				return err
+				return errors.Join(err, s.stopAll())
+			}
+		case <-secondProcessDone:
+			s.noteProcessExit(s.controllers[1])
+			if err := s.reconcileAll(ctx); err != nil {
+				return errors.Join(err, s.stopAll())
 			}
 		case <-healthChecks.C():
 			if err := s.reconcileAll(ctx); err != nil {
-				s.stopAll()
-				return err
+				return errors.Join(err, s.stopAll())
 			}
 		}
 	}
-}
-
-func (s *Supervisor) reconcilePermission(permission privacy.Permission, enabled bool) error {
-	for _, item := range s.controllers {
-		if item.spec.Permission == permission {
-			return s.reconcileOne(item, enabled)
-		}
-	}
-	return nil
 }
 
 func (s *Supervisor) reconcileAll(ctx context.Context) error {
@@ -235,6 +249,8 @@ func (s *Supervisor) reconcileOne(item *controller, enabled bool) error {
 		select {
 		case <-process.Done():
 			item.process = nil
+			item.instanceID = ""
+			item.everHealthy = false
 			process = nil
 			s.leases.RevokeProvider(item.spec.ProviderID)
 			s.removeLeaseStateLocked(item.spec.ProviderID)
@@ -248,17 +264,25 @@ func (s *Supervisor) reconcileOne(item *controller, enabled bool) error {
 	if !enabled {
 		item.failed = false
 		if process == nil {
+			item.instanceID = ""
+			item.everHealthy = false
 			s.setRuntimeLocked(item, provider.Disabled, provider.ReasonDisabledByUser)
 			s.mu.Unlock()
 			return nil
 		}
 		s.setRuntimeLocked(item, provider.Stopping, provider.ReasonShuttingDown)
 		s.mu.Unlock()
-		s.stopProcess(process)
+		stopErr := s.stopProcess(process)
 		s.leases.RevokeProvider(item.spec.ProviderID)
 		s.mu.Lock()
 		s.removeLeaseStateLocked(item.spec.ProviderID)
+		if stopErr != nil {
+			s.setRuntimeLocked(item, provider.Degraded, provider.ReasonInternalError)
+			s.mu.Unlock()
+			return stopErr
+		}
 		item.process = nil
+		item.instanceID = ""
 		item.everHealthy = false
 		s.setRuntimeLocked(item, provider.Disabled, provider.ReasonDisabledByUser)
 		s.mu.Unlock()
@@ -270,7 +294,15 @@ func (s *Supervisor) reconcileOne(item *controller, enabled bool) error {
 			return nil
 		}
 		s.setRuntimeLocked(item, provider.Starting, provider.ReasonNone)
+		instanceID, err := s.config.newInstanceID(item.spec.ProviderID)
+		if err != nil || strings.TrimSpace(instanceID) == "" || instanceID != strings.TrimSpace(instanceID) {
+			item.failed = true
+			s.setRuntimeLocked(item, provider.Degraded, provider.ReasonInternalError)
+			s.mu.Unlock()
+			return nil
+		}
 		spec := item.spec
+		spec.InstanceID = instanceID
 		s.mu.Unlock()
 		started, err := s.launcher.Start(spec)
 		s.mu.Lock()
@@ -281,21 +313,48 @@ func (s *Supervisor) reconcileOne(item *controller, enabled bool) error {
 			return nil
 		}
 		item.process = started
+		item.instanceID = instanceID
+		item.everHealthy = false
 		process = started
-		go func(done <-chan error) {
-			<-done
-			s.signal(s.processes)
-		}(started.Done())
 	}
 	s.refreshLeaseStateLocked(item)
 	s.mu.Unlock()
 	return nil
 }
 
+func (s *Supervisor) processDoneChannels() (<-chan error, <-chan error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var first, second <-chan error
+	if s.controllers[0].process != nil {
+		first = s.controllers[0].process.Done()
+	}
+	if s.controllers[1].process != nil {
+		second = s.controllers[1].process.Done()
+	}
+	return first, second
+}
+
+func (s *Supervisor) noteProcessExit(item *controller) {
+	s.mu.Lock()
+	if item.process == nil {
+		s.mu.Unlock()
+		return
+	}
+	item.process = nil
+	item.instanceID = ""
+	item.everHealthy = false
+	item.failed = true
+	s.removeLeaseStateLocked(item.spec.ProviderID)
+	s.setRuntimeLocked(item, provider.Degraded, provider.ReasonInternalError)
+	s.mu.Unlock()
+	s.leases.RevokeProvider(item.spec.ProviderID)
+}
+
 func (s *Supervisor) refreshLeaseStateLocked(item *controller) {
 	now := s.clock.Now()
 	for _, snapshot := range s.leaseState {
-		if snapshot.ProviderID != item.spec.ProviderID {
+		if snapshot.ProviderID != item.spec.ProviderID || snapshot.InstanceID != item.instanceID {
 			continue
 		}
 		if snapshot.Health == readiness.Healthy && now.Before(snapshot.LeaseExpiresAt) {
@@ -314,37 +373,55 @@ func (s *Supervisor) refreshLeaseStateLocked(item *controller) {
 	s.setRuntimeLocked(item, provider.Starting, provider.ReasonNone)
 }
 
-func (s *Supervisor) stopAll() {
+func (s *Supervisor) stopAll() error {
+	var stopErrors []error
 	for _, item := range s.controllers {
 		s.mu.Lock()
 		process := item.process
+		var stopErr error
 		if process != nil {
 			s.setRuntimeLocked(item, provider.Stopping, provider.ReasonShuttingDown)
 		}
 		s.mu.Unlock()
 		if process != nil {
-			s.stopProcess(process)
+			if stopErr = s.stopProcess(process); stopErr != nil {
+				stopErrors = append(stopErrors, stopErr)
+			}
 			s.leases.RevokeProvider(item.spec.ProviderID)
 		}
 		s.mu.Lock()
 		s.removeLeaseStateLocked(item.spec.ProviderID)
-		item.process = nil
-		item.failed = false
-		item.everHealthy = false
-		s.setRuntimeLocked(item, provider.Disabled, provider.ReasonDisabledByUser)
+		if stopErr != nil {
+			s.setRuntimeLocked(item, provider.Degraded, provider.ReasonInternalError)
+		} else {
+			item.process = nil
+			item.instanceID = ""
+			item.failed = false
+			item.everHealthy = false
+			s.setRuntimeLocked(item, provider.Disabled, provider.ReasonDisabledByUser)
+		}
 		s.mu.Unlock()
 	}
+	return errors.Join(stopErrors...)
 }
 
-func (s *Supervisor) stopProcess(process Process) {
+func (s *Supervisor) stopProcess(process Process) error {
+	const op = "stop local worker process"
 	_ = process.Signal(syscall.SIGTERM)
 	select {
 	case <-process.Done():
-		return
+		return nil
 	case <-s.config.after(s.config.StopTimeout):
 	}
-	_ = process.Kill()
-	<-process.Done()
+	if err := process.Kill(); err != nil {
+		return fault.New(fault.Unavailable, op, err)
+	}
+	select {
+	case <-process.Done():
+		return nil
+	case <-s.config.after(s.config.StopTimeout):
+		return fault.New(fault.DeadlineExceeded, op, errors.New("process did not exit after kill"))
+	}
 }
 
 func (s *Supervisor) setLeases(input []readiness.ProviderSnapshot) {
@@ -449,6 +526,15 @@ func cloneLeases(input []readiness.ProviderSnapshot) []readiness.ProviderSnapsho
 		output[index].Capabilities = append([]readiness.CapabilityKind(nil), output[index].Capabilities...)
 	}
 	return output
+}
+
+func randomInstanceID(providerID string) (string, error) {
+	const op = "create local worker instance id"
+	buffer := make([]byte, 16)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", fault.New(fault.Unavailable, op, err)
+	}
+	return providerID + "-" + hex.EncodeToString(buffer), nil
 }
 
 func isNil(value any) bool {

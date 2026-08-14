@@ -122,7 +122,7 @@ Stage C 已扩展为能力平台。Provider 声明稳定 ID、协议/实现版�
 
 原始帧、PCM、裁剪、embedding、声纹向量、Tensor 和生物模板只存在于受控 Worker 或专用加密存储，不进入 Engine、语义审计或通用契约。控制界面只监听 loopback，首个运行平台为 Ubuntu Linux，本地语音输出使用 Speech Dispatcher。摄像头、麦克风、身份、UI 或 TTS 失效时必须独立降级，不能阻塞 P0 拒绝和核心静默路径。详细产品定义见 `docs/PRODUCT_REQUIREMENTS.md`，边界决策见 ADR 0002。
 
-Stage C2 的 Python media worker 仅连接 composition 创建的随机私有 UDS：运行目录 `0700`、socket `0600`，不开放 TCP。CameraCapture 与 MicrophoneCapture 默认关闭并分别驱动子进程；许可表示期望状态，只有健康且未过期的 Registry lease 才表示 Provider 正在运行。Camera 使用显式设备、640×480/约 5 FPS、HOG/upper-body 匿名人体检测和进入/退出滞回，不得在 CameraCapture 授权下加载人脸模型。VAD 使用 16 kHz mono s16le、20 ms 帧、300 ms 稳定语音判定和 500 ms 静音重武装。worker 所有者负责 SIGTERM、超时 SIGKILL 与 join，不自动无限重启。
+Stage C2 的 Python media worker 仅连接 composition 创建的随机私有 UDS：运行目录 `0700`、socket `0600`，不开放 TCP。CameraCapture 与 MicrophoneCapture 默认关闭并分别驱动子进程；许可表示期望状态，只有健康且未过期的 Registry lease 才表示 Provider 正在运行。每次启动由 Supervisor 生成新的 instance ID，健康状态只能匹配同一 Provider 和当前 instance，旧进程的 lease 不得复活新进程。Camera 使用显式设备、640×480/约 5 FPS、HOG/upper-body 匿名人体检测和进入/退出滞回，不得在 CameraCapture 授权下加载人脸模型。VAD 使用 16 kHz mono s16le、20 ms 帧、300 ms 稳定语音判定和 500 ms 静音重武装。worker 所有者负责 SIGTERM、超时 SIGKILL 与有界 join；kill 失败或进程拒绝退出必须返回稳定错误，不能无限等待，也不自动无限重启。
 
 暂不引入 Kafka、Kubernetes、微服务拆分、任意动态插件、万能事件总线、完整 Event Sourcing、工作流平台、向量数据库实时依赖、LLM 总控制器或 ROS 领域类型。
 

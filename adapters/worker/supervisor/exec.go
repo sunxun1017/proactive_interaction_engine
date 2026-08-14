@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
@@ -11,7 +12,11 @@ import (
 type ExecLauncher struct{}
 
 func (ExecLauncher) Start(spec Spec) (Process, error) {
-	command := exec.Command(spec.Command, spec.Args...)
+	if strings.TrimSpace(spec.InstanceID) == "" || spec.InstanceID != strings.TrimSpace(spec.InstanceID) {
+		return nil, errors.New("worker instance id is required")
+	}
+	args := append(append([]string(nil), spec.Args...), "--instance-id", spec.InstanceID)
+	command := exec.Command(spec.Command, args...)
 	command.Dir = spec.WorkingDir
 	command.Env = append(os.Environ(), spec.Env...)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
