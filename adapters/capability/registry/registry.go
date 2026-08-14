@@ -36,6 +36,8 @@ type Registry struct {
 	mu         sync.RWMutex
 	byProvider map[string]*providerRecord
 	byLease    map[string]*providerRecord
+	subs       map[uint64]chan []readiness.ProviderSnapshot
+	nextSubID  uint64
 }
 
 type providerRecord struct {
@@ -57,6 +59,7 @@ func New(clock port.Clock, leaseDuration time.Duration) (*Registry, error) {
 		leaseDuration: leaseDuration,
 		byProvider:    make(map[string]*providerRecord),
 		byLease:       make(map[string]*providerRecord),
+		subs:          make(map[uint64]chan []readiness.ProviderSnapshot),
 	}, nil
 }
 
@@ -105,6 +108,7 @@ func (r *Registry) RegisterCapabilityProvider(ctx context.Context, request *plat
 	}
 	r.byProvider[declaration.providerID] = record
 	r.byLease[leaseID] = record
+	r.notifySubscribersLocked()
 	return registerResponse(record), nil
 }
 
@@ -132,6 +136,7 @@ func (r *Registry) HeartbeatCapabilityProvider(ctx context.Context, request *pla
 	}
 	record.snapshot.Health = health
 	record.snapshot.LeaseExpiresAt = now.Add(r.leaseDuration)
+	r.notifySubscribersLocked()
 	return &platformv1.HeartbeatCapabilityProviderResponse{
 		ExpiresAt: timestamppb.New(record.snapshot.LeaseExpiresAt),
 	}, nil
@@ -158,6 +163,7 @@ func (r *Registry) UnregisterCapabilityProvider(ctx context.Context, request *pl
 	if current, exists := r.byProvider[record.declaration.providerID]; exists && current == record {
 		delete(r.byProvider, record.declaration.providerID)
 	}
+	r.notifySubscribersLocked()
 	return &platformv1.UnregisterCapabilityProviderResponse{}, nil
 }
 
@@ -166,6 +172,36 @@ func (r *Registry) UnregisterCapabilityProvider(ctx context.Context, request *pl
 func (r *Registry) Snapshots() []readiness.ProviderSnapshot {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	return r.snapshotsLocked()
+}
+
+// Subscribe returns an immutable current snapshot and a latest-only stream of
+// successful registry mutations. Lease expiry remains a reader-side time
+// decision and does not create a synthetic mutation.
+func (r *Registry) Subscribe() ([]readiness.ProviderSnapshot, <-chan []readiness.ProviderSnapshot, func()) {
+	r.mu.Lock()
+	id := r.nextSubID
+	r.nextSubID++
+	updates := make(chan []readiness.ProviderSnapshot, 1)
+	r.subs[id] = updates
+	initial := r.snapshotsLocked()
+	r.mu.Unlock()
+
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() {
+			r.mu.Lock()
+			if existing, ok := r.subs[id]; ok {
+				delete(r.subs, id)
+				close(existing)
+			}
+			r.mu.Unlock()
+		})
+	}
+	return initial, updates, cancel
+}
+
+func (r *Registry) snapshotsLocked() []readiness.ProviderSnapshot {
 
 	snapshots := make([]readiness.ProviderSnapshot, 0, len(r.byProvider))
 	for _, record := range r.byProvider {
@@ -177,6 +213,21 @@ func (r *Registry) Snapshots() []readiness.ProviderSnapshot {
 		return snapshots[i].ProviderID < snapshots[j].ProviderID
 	})
 	return snapshots
+}
+
+func (r *Registry) notifySubscribersLocked() {
+	for _, subscriber := range r.subs {
+		snapshots := r.snapshotsLocked()
+		select {
+		case subscriber <- snapshots:
+		default:
+			select {
+			case <-subscriber:
+			default:
+			}
+			subscriber <- snapshots
+		}
+	}
 }
 
 // LeaseSnapshot returns the record currently bound to leaseID without

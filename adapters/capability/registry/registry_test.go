@@ -358,6 +358,55 @@ func TestUnregisterValidatesLeaseAndRemovesProvider(t *testing.T) {
 	})
 }
 
+func TestSubscribePublishesImmutableLatestSnapshotsForSuccessfulMutations(t *testing.T) {
+	clock := engineclock.NewFake(testNow())
+	registry, _ := New(clock, time.Minute)
+	initial, updates, cancel := registry.Subscribe()
+	defer cancel()
+	if len(initial) != 0 {
+		t.Fatalf("initial snapshots = %#v, want empty", initial)
+	}
+
+	registration := registerOK(t, registry, validRegistration("camera", "camera-1", platformv1.ServiceCapabilityKind_SERVICE_CAPABILITY_KIND_PERSON_PRESENCE))
+	registered := receiveSnapshots(t, updates)
+	if len(registered) != 1 || registered[0].ProviderID != "camera" {
+		t.Fatalf("registered snapshots = %#v", registered)
+	}
+	registered[0].Capabilities[0] = readiness.DeviceState
+	if current := registry.Snapshots(); current[0].Capabilities[0] != readiness.PersonPresence {
+		t.Fatalf("subscriber mutated registry snapshot = %#v", current)
+	}
+
+	if _, err := registry.HeartbeatCapabilityProvider(context.Background(), healthyHeartbeat(registration.LeaseId)); err != nil {
+		t.Fatalf("HeartbeatCapabilityProvider() error = %v", err)
+	}
+	heartbeat := receiveSnapshots(t, updates)
+	if len(heartbeat) != 1 || heartbeat[0].Health != readiness.Healthy {
+		t.Fatalf("heartbeat snapshots = %#v", heartbeat)
+	}
+
+	if _, err := registry.UnregisterCapabilityProvider(context.Background(), &platformv1.UnregisterCapabilityProviderRequest{LeaseId: registration.LeaseId}); err != nil {
+		t.Fatalf("UnregisterCapabilityProvider() error = %v", err)
+	}
+	if unregistered := receiveSnapshots(t, updates); len(unregistered) != 0 {
+		t.Fatalf("unregistered snapshots = %#v, want empty", unregistered)
+	}
+}
+
+func receiveSnapshots(t *testing.T, updates <-chan []readiness.ProviderSnapshot) []readiness.ProviderSnapshot {
+	t.Helper()
+	select {
+	case snapshots, ok := <-updates:
+		if !ok {
+			t.Fatal("snapshot subscription closed")
+		}
+		return snapshots
+	case <-time.After(time.Second):
+		t.Fatal("snapshot update not published")
+		return nil
+	}
+}
+
 func TestSnapshotsAreSortedAndDeepCopied(t *testing.T) {
 	registry, _ := New(engineclock.NewFake(testNow()), time.Minute)
 	registerOK(t, registry, validRegistration("z-provider", "z", platformv1.ServiceCapabilityKind_SERVICE_CAPABILITY_KIND_VOICE_ACTIVITY))
