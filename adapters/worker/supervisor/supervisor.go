@@ -357,13 +357,13 @@ func (s *Supervisor) refreshLeaseStateLocked(item *controller) {
 		if snapshot.ProviderID != item.spec.ProviderID || snapshot.InstanceID != item.instanceID {
 			continue
 		}
-		if snapshot.Health == readiness.Healthy && now.Before(snapshot.LeaseExpiresAt) {
-			item.everHealthy = true
-			s.setRuntimeLocked(item, provider.Running, provider.ReasonNone)
+		item.everHealthy = true
+		if !now.Before(snapshot.LeaseExpiresAt) {
+			s.setRuntimeLocked(item, provider.Degraded, provider.ReasonDeviceUnavailable)
 			return
 		}
-		item.everHealthy = true
-		s.setRuntimeLocked(item, provider.Degraded, provider.ReasonDeviceUnavailable)
+		state, reason := providerRuntimeHealth(snapshot.Health, snapshot.HealthReason)
+		s.setRuntimeLocked(item, state, reason)
 		return
 	}
 	if item.everHealthy {
@@ -371,6 +371,33 @@ func (s *Supervisor) refreshLeaseStateLocked(item *controller) {
 		return
 	}
 	s.setRuntimeLocked(item, provider.Starting, provider.ReasonNone)
+}
+
+func providerRuntimeHealth(health readiness.ProviderHealth, reason readiness.ProviderHealthReason) (provider.State, provider.Reason) {
+	if health == readiness.Healthy && reason == readiness.ProviderHealthReasonNone {
+		return provider.Running, provider.ReasonNone
+	}
+	if health != readiness.Unhealthy {
+		return provider.Degraded, provider.ReasonInternalError
+	}
+	switch reason {
+	case readiness.ProviderHealthReasonStarting:
+		return provider.Starting, provider.ReasonNone
+	case readiness.ProviderHealthReasonDeviceUnavailable:
+		return provider.Degraded, provider.ReasonDeviceUnavailable
+	case readiness.ProviderHealthReasonPermissionDenied:
+		return provider.Degraded, provider.ReasonPermissionDenied
+	case readiness.ProviderHealthReasonDependencyUnavailable:
+		return provider.Degraded, provider.ReasonDependencyUnavailable
+	case readiness.ProviderHealthReasonModelUnavailable:
+		return provider.Degraded, provider.ReasonModelUnavailable
+	case readiness.ProviderHealthReasonInternalError:
+		return provider.Degraded, provider.ReasonInternalError
+	case readiness.ProviderHealthReasonShuttingDown:
+		return provider.Stopping, provider.ReasonShuttingDown
+	default:
+		return provider.Degraded, provider.ReasonInternalError
+	}
 }
 
 func (s *Supervisor) stopAll() error {

@@ -87,6 +87,21 @@ const (
 	Unhealthy ProviderHealth = "UNHEALTHY"
 )
 
+// ProviderHealthReason is the stable application-level explanation paired
+// with a provider health state.
+type ProviderHealthReason string
+
+const (
+	ProviderHealthReasonNone                  ProviderHealthReason = "NONE"
+	ProviderHealthReasonStarting              ProviderHealthReason = "STARTING"
+	ProviderHealthReasonDeviceUnavailable     ProviderHealthReason = "DEVICE_UNAVAILABLE"
+	ProviderHealthReasonPermissionDenied      ProviderHealthReason = "PERMISSION_DENIED"
+	ProviderHealthReasonDependencyUnavailable ProviderHealthReason = "DEPENDENCY_UNAVAILABLE"
+	ProviderHealthReasonModelUnavailable      ProviderHealthReason = "MODEL_UNAVAILABLE"
+	ProviderHealthReasonInternalError         ProviderHealthReason = "INTERNAL_ERROR"
+	ProviderHealthReasonShuttingDown          ProviderHealthReason = "SHUTTING_DOWN"
+)
+
 // ProviderPrivacyClass describes where a provider processes its inputs.
 type ProviderPrivacyClass string
 
@@ -146,6 +161,7 @@ type ProviderSnapshot struct {
 	ImplementationVersion string
 	Capabilities          []CapabilityKind
 	Health                ProviderHealth
+	HealthReason          ProviderHealthReason
 	LeaseExpiresAt        time.Time
 	OperationalProfile    ProviderOperationalProfile
 }

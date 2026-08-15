@@ -86,6 +86,7 @@ func TestGeneratedGRPCRegisterRoundTrip(t *testing.T) {
 		ImplementationVersion: "test-v1",
 		Capabilities:          []readiness.CapabilityKind{readiness.PersonPresence},
 		Health:                readiness.Healthy,
+		HealthReason:          readiness.ProviderHealthReasonNone,
 		LeaseExpiresAt:        testNow().Add(time.Minute),
 		OperationalProfile: readiness.ProviderOperationalProfile{
 			PrivacyClass:          readiness.ProviderPrivacyDeviceLocal,

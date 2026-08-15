@@ -51,7 +51,8 @@ func TestSupervisorStartsOnlyAfterDurablePermissionAndTracksHealthyLease(t *test
 
 	leases.publish([]readiness.ProviderSnapshot{{
 		ProviderID: "desktop-presence", InstanceID: spec.InstanceID, ProtocolVersion: "v1", ImplementationVersion: "test",
-		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy, LeaseExpiresAt: now.Add(time.Minute),
+		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy,
+		HealthReason: readiness.ProviderHealthReasonNone, LeaseExpiresAt: now.Add(time.Minute),
 	}})
 	requireProviderState(t, supervisor, "desktop-presence", provider.Running, provider.ReasonNone)
 
@@ -62,6 +63,46 @@ func TestSupervisorStartsOnlyAfterDurablePermissionAndTracksHealthyLease(t *test
 	process := launcher.process(0)
 	if got := process.signals(); !reflect.DeepEqual(got, []os.Signal{syscall.SIGTERM}) {
 		t.Fatalf("process signals = %#v, want SIGTERM", got)
+	}
+}
+
+func TestSupervisorMapsProviderHealthReasonsExactly(t *testing.T) {
+	now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+	permissions := newPermissionService(t, now)
+	if _, err := permissions.Change(context.Background(), privacy.ChangePermission{Permission: privacy.CameraCapture, Enabled: true}); err != nil {
+		t.Fatalf("seed camera permission: %v", err)
+	}
+	leases := newFakeLeases()
+	launcher := &fakeLauncher{starts: make(chan Spec, 2)}
+	supervisor := newTestSupervisor(t, permissions, leases, launcher, now)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- supervisor.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	spec := receiveStart(t, launcher.starts)
+
+	tests := []struct {
+		reason     readiness.ProviderHealthReason
+		wantState  provider.State
+		wantReason provider.Reason
+	}{
+		{readiness.ProviderHealthReasonStarting, provider.Starting, provider.ReasonNone},
+		{readiness.ProviderHealthReasonDeviceUnavailable, provider.Degraded, provider.ReasonDeviceUnavailable},
+		{readiness.ProviderHealthReasonPermissionDenied, provider.Degraded, provider.ReasonPermissionDenied},
+		{readiness.ProviderHealthReasonDependencyUnavailable, provider.Degraded, provider.ReasonDependencyUnavailable},
+		{readiness.ProviderHealthReasonModelUnavailable, provider.Degraded, provider.ReasonModelUnavailable},
+		{readiness.ProviderHealthReasonInternalError, provider.Degraded, provider.ReasonInternalError},
+		{readiness.ProviderHealthReasonShuttingDown, provider.Stopping, provider.ReasonShuttingDown},
+	}
+	for _, test := range tests {
+		t.Run(string(test.reason), func(t *testing.T) {
+			leases.publish([]readiness.ProviderSnapshot{{
+				ProviderID: "desktop-presence", InstanceID: spec.InstanceID, ProtocolVersion: "v1", ImplementationVersion: "test",
+				Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Unhealthy,
+				HealthReason: test.reason, LeaseExpiresAt: now.Add(time.Minute),
+			}})
+			requireProviderState(t, supervisor, "desktop-presence", test.wantState, test.wantReason)
+		})
 	}
 }
 
@@ -162,7 +203,8 @@ func TestSupervisorHealthCheckDegradesAtLeaseDeadline(t *testing.T) {
 	spec := receiveStart(t, launcher.starts)
 	leases.publish([]readiness.ProviderSnapshot{{
 		ProviderID: "desktop-presence", InstanceID: spec.InstanceID, ProtocolVersion: "v1", ImplementationVersion: "test",
-		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy, LeaseExpiresAt: now.Add(time.Second),
+		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy,
+		HealthReason: readiness.ProviderHealthReasonNone, LeaseExpiresAt: now.Add(time.Second),
 	}})
 	requireProviderState(t, supervisor, "desktop-presence", provider.Running, provider.ReasonNone)
 
@@ -179,7 +221,8 @@ func TestSupervisorIgnoresLeaseFromPreviousWorkerInstance(t *testing.T) {
 	leases := newFakeLeases()
 	leases.publish([]readiness.ProviderSnapshot{{
 		ProviderID: "desktop-presence", InstanceID: "desktop-presence-old", ProtocolVersion: "v1", ImplementationVersion: "test",
-		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy, LeaseExpiresAt: now.Add(time.Minute),
+		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy,
+		HealthReason: readiness.ProviderHealthReasonNone, LeaseExpiresAt: now.Add(time.Minute),
 	}})
 	launcher := &fakeLauncher{starts: make(chan Spec, 2)}
 	supervisor := newTestSupervisor(t, permissions, leases, launcher, now)
@@ -192,7 +235,8 @@ func TestSupervisorIgnoresLeaseFromPreviousWorkerInstance(t *testing.T) {
 	requireProviderState(t, supervisor, "desktop-presence", provider.Starting, provider.ReasonNone)
 	leases.publish([]readiness.ProviderSnapshot{{
 		ProviderID: "desktop-presence", InstanceID: spec.InstanceID, ProtocolVersion: "v1", ImplementationVersion: "test",
-		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy, LeaseExpiresAt: now.Add(time.Minute),
+		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy,
+		HealthReason: readiness.ProviderHealthReasonNone, LeaseExpiresAt: now.Add(time.Minute),
 	}})
 	requireProviderState(t, supervisor, "desktop-presence", provider.Running, provider.ReasonNone)
 }
@@ -214,7 +258,8 @@ func TestSupervisorRestartDoesNotInheritPreviousInstanceHealth(t *testing.T) {
 	first := receiveStart(t, launcher.starts)
 	leases.publish([]readiness.ProviderSnapshot{{
 		ProviderID: "desktop-presence", InstanceID: first.InstanceID, ProtocolVersion: "v1", ImplementationVersion: "test",
-		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy, LeaseExpiresAt: now.Add(time.Minute),
+		Capabilities: []readiness.CapabilityKind{readiness.PersonPresence}, Health: readiness.Healthy,
+		HealthReason: readiness.ProviderHealthReasonNone, LeaseExpiresAt: now.Add(time.Minute),
 	}})
 	requireProviderState(t, supervisor, "desktop-presence", provider.Running, provider.ReasonNone)
 	launcher.process(0).exit(errors.New("camera failed"))

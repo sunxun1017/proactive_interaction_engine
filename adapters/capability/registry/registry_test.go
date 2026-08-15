@@ -135,6 +135,72 @@ func TestRegisterMapsEveryOperationalProfileEnumExplicitly(t *testing.T) {
 	}
 }
 
+func TestNormalizeHealthMapsEveryReasonExplicitly(t *testing.T) {
+	tests := []struct {
+		wireState  platformv1.ProviderHealthState
+		wireReason platformv1.ProviderHealthReason
+		wantHealth readiness.ProviderHealth
+		wantReason readiness.ProviderHealthReason
+	}{
+		{
+			platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_HEALTHY,
+			platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_NONE,
+			readiness.Healthy,
+			readiness.ProviderHealthReasonNone,
+		},
+		{
+			platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_UNHEALTHY,
+			platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_STARTING,
+			readiness.Unhealthy,
+			readiness.ProviderHealthReasonStarting,
+		},
+		{
+			platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_UNHEALTHY,
+			platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_DEVICE_UNAVAILABLE,
+			readiness.Unhealthy,
+			readiness.ProviderHealthReasonDeviceUnavailable,
+		},
+		{
+			platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_UNHEALTHY,
+			platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_PERMISSION_DENIED,
+			readiness.Unhealthy,
+			readiness.ProviderHealthReasonPermissionDenied,
+		},
+		{
+			platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_UNHEALTHY,
+			platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_DEPENDENCY_UNAVAILABLE,
+			readiness.Unhealthy,
+			readiness.ProviderHealthReasonDependencyUnavailable,
+		},
+		{
+			platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_UNHEALTHY,
+			platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_MODEL_UNAVAILABLE,
+			readiness.Unhealthy,
+			readiness.ProviderHealthReasonModelUnavailable,
+		},
+		{
+			platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_UNHEALTHY,
+			platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_INTERNAL_ERROR,
+			readiness.Unhealthy,
+			readiness.ProviderHealthReasonInternalError,
+		},
+		{
+			platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_UNHEALTHY,
+			platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_SHUTTING_DOWN,
+			readiness.Unhealthy,
+			readiness.ProviderHealthReasonShuttingDown,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.wireReason.String(), func(t *testing.T) {
+			health, reason, err := normalizeHealth(test.wireState, test.wireReason)
+			if err != nil || health != test.wantHealth || reason != test.wantReason {
+				t.Fatalf("normalizeHealth(%s, %s) = %q, %q, %v, want %q, %q", test.wireState, test.wireReason, health, reason, err, test.wantHealth, test.wantReason)
+			}
+		})
+	}
+}
+
 func TestRegisterRejectsInvalidRequestsWithStableCodes(t *testing.T) {
 	now := testNow()
 	tests := []struct {
@@ -409,13 +475,16 @@ func TestExpiredProviderCanBeReplacedButOldLeaseCannotRevive(t *testing.T) {
 func TestHeartbeatRenewsFromServerTimeAndUpdatesHealth(t *testing.T) {
 	clock := engineclock.NewFake(testNow())
 	registry, _ := New(clock, time.Minute)
+	_, updates, cancel := registry.Subscribe()
+	defer cancel()
 	registration := registerOK(t, registry, validRegistration("camera", "camera-1", platformv1.ServiceCapabilityKind_SERVICE_CAPABILITY_KIND_PERSON_PRESENCE))
+	_ = receiveSnapshots(t, updates)
 	clock.Advance(20 * time.Second)
 
 	response, err := registry.HeartbeatCapabilityProvider(context.Background(), &platformv1.HeartbeatCapabilityProviderRequest{
 		LeaseId:      registration.LeaseId,
 		Health:       platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_UNHEALTHY,
-		HealthReason: platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_DEVICE_UNAVAILABLE,
+		HealthReason: platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_MODEL_UNAVAILABLE,
 	})
 	if err != nil {
 		t.Fatalf("HeartbeatCapabilityProvider() error = %v", err)
@@ -425,8 +494,32 @@ func TestHeartbeatRenewsFromServerTimeAndUpdatesHealth(t *testing.T) {
 		t.Fatalf("heartbeat expiry = %s, want %s", response.ExpiresAt.AsTime(), wantExpiry)
 	}
 	snapshots := registry.Snapshots()
-	if len(snapshots) != 1 || snapshots[0].Health != readiness.Unhealthy || snapshots[0].LeaseExpiresAt != wantExpiry {
+	if len(snapshots) != 1 || snapshots[0].Health != readiness.Unhealthy ||
+		snapshots[0].HealthReason != readiness.ProviderHealthReasonModelUnavailable || snapshots[0].LeaseExpiresAt != wantExpiry {
 		t.Fatalf("Snapshots() after heartbeat = %#v", snapshots)
+	}
+	update := receiveSnapshots(t, updates)
+	if len(update) != 1 || update[0].HealthReason != readiness.ProviderHealthReasonModelUnavailable {
+		t.Fatalf("subscription after heartbeat = %#v", update)
+	}
+	lease, ok := registry.LeaseSnapshot(registration.LeaseId)
+	if !ok || lease.HealthReason != readiness.ProviderHealthReasonModelUnavailable {
+		t.Fatalf("LeaseSnapshot() after heartbeat = %#v, %t", lease, ok)
+	}
+}
+
+func TestSameDeclarationComparesApplicationHealthReason(t *testing.T) {
+	request := validRegistration("camera", "camera-1", platformv1.ServiceCapabilityKind_SERVICE_CAPABILITY_KIND_PERSON_PRESENCE)
+	request.Health = platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_UNHEALTHY
+	request.HealthReason = platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_STARTING
+	left, err := normalizeRegistration(request)
+	if err != nil {
+		t.Fatalf("normalizeRegistration() error = %v", err)
+	}
+	right := left
+	right.healthReason = readiness.ProviderHealthReasonModelUnavailable
+	if sameDeclaration(left, right) {
+		t.Fatal("sameDeclaration() accepted a different health reason")
 	}
 }
 

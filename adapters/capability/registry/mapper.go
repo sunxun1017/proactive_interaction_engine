@@ -18,7 +18,7 @@ type registrationDeclaration struct {
 	capabilities          []readiness.CapabilityKind
 	operationalProfile    readiness.ProviderOperationalProfile
 	health                readiness.ProviderHealth
-	healthReason          platformv1.ProviderHealthReason
+	healthReason          readiness.ProviderHealthReason
 }
 
 func normalizeRegistration(request *platformv1.RegisterCapabilityProviderRequest) (registrationDeclaration, error) {
@@ -35,7 +35,7 @@ func normalizeRegistration(request *platformv1.RegisterCapabilityProviderRequest
 	if err != nil {
 		return registrationDeclaration{}, err
 	}
-	health, err := normalizeHealth(request.GetHealth(), request.GetHealthReason())
+	health, healthReason, err := normalizeHealth(request.GetHealth(), request.GetHealthReason())
 	if err != nil {
 		return registrationDeclaration{}, err
 	}
@@ -51,7 +51,7 @@ func normalizeRegistration(request *platformv1.RegisterCapabilityProviderRequest
 		capabilities:          capabilities,
 		operationalProfile:    operationalProfile,
 		health:                health,
-		healthReason:          request.GetHealthReason(),
+		healthReason:          healthReason,
 	}, nil
 }
 
@@ -148,15 +148,15 @@ func mapDeviceClass(input platformv1.ProviderDeviceClass) (readiness.ProviderDev
 	}
 }
 
-func normalizeHeartbeat(request *platformv1.HeartbeatCapabilityProviderRequest) (string, readiness.ProviderHealth, error) {
+func normalizeHeartbeat(request *platformv1.HeartbeatCapabilityProviderRequest) (string, readiness.ProviderHealth, readiness.ProviderHealthReason, error) {
 	if request == nil || request.GetLeaseId() == "" {
-		return "", "", status.Error(codes.InvalidArgument, "heartbeat lease id is required")
+		return "", "", "", status.Error(codes.InvalidArgument, "heartbeat lease id is required")
 	}
-	health, err := normalizeHealth(request.GetHealth(), request.GetHealthReason())
+	health, reason, err := normalizeHealth(request.GetHealth(), request.GetHealthReason())
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return request.GetLeaseId(), health, nil
+	return request.GetLeaseId(), health, reason, nil
 }
 
 func normalizeCapabilities(input []platformv1.ServiceCapabilityKind) ([]readiness.CapabilityKind, error) {
@@ -224,38 +224,49 @@ func mapCapability(input platformv1.ServiceCapabilityKind) (readiness.Capability
 	}
 }
 
-func normalizeHealth(state platformv1.ProviderHealthState, reason platformv1.ProviderHealthReason) (readiness.ProviderHealth, error) {
-	if !validHealthReason(reason) {
-		return "", status.Error(codes.InvalidArgument, "health reason is unspecified or unknown")
+func normalizeHealth(
+	state platformv1.ProviderHealthState,
+	wireReason platformv1.ProviderHealthReason,
+) (readiness.ProviderHealth, readiness.ProviderHealthReason, error) {
+	reason, ok := mapHealthReason(wireReason)
+	if !ok {
+		return "", "", status.Error(codes.InvalidArgument, "health reason is unspecified or unknown")
 	}
 	switch state {
 	case platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_HEALTHY:
-		if reason != platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_NONE {
-			return "", status.Error(codes.InvalidArgument, "healthy provider must use NONE reason")
+		if reason != readiness.ProviderHealthReasonNone {
+			return "", "", status.Error(codes.InvalidArgument, "healthy provider must use NONE reason")
 		}
-		return readiness.Healthy, nil
+		return readiness.Healthy, reason, nil
 	case platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_UNHEALTHY:
-		if reason == platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_NONE {
-			return "", status.Error(codes.InvalidArgument, "unhealthy provider must use a failure reason")
+		if reason == readiness.ProviderHealthReasonNone {
+			return "", "", status.Error(codes.InvalidArgument, "unhealthy provider must use a failure reason")
 		}
-		return readiness.Unhealthy, nil
+		return readiness.Unhealthy, reason, nil
 	default:
-		return "", status.Error(codes.InvalidArgument, "health state is unspecified or unknown")
+		return "", "", status.Error(codes.InvalidArgument, "health state is unspecified or unknown")
 	}
 }
 
-func validHealthReason(reason platformv1.ProviderHealthReason) bool {
+func mapHealthReason(reason platformv1.ProviderHealthReason) (readiness.ProviderHealthReason, bool) {
 	switch reason {
-	case platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_NONE,
-		platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_STARTING,
-		platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_DEVICE_UNAVAILABLE,
-		platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_PERMISSION_DENIED,
-		platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_DEPENDENCY_UNAVAILABLE,
-		platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_MODEL_UNAVAILABLE,
-		platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_INTERNAL_ERROR,
-		platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_SHUTTING_DOWN:
-		return true
+	case platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_NONE:
+		return readiness.ProviderHealthReasonNone, true
+	case platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_STARTING:
+		return readiness.ProviderHealthReasonStarting, true
+	case platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_DEVICE_UNAVAILABLE:
+		return readiness.ProviderHealthReasonDeviceUnavailable, true
+	case platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_PERMISSION_DENIED:
+		return readiness.ProviderHealthReasonPermissionDenied, true
+	case platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_DEPENDENCY_UNAVAILABLE:
+		return readiness.ProviderHealthReasonDependencyUnavailable, true
+	case platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_MODEL_UNAVAILABLE:
+		return readiness.ProviderHealthReasonModelUnavailable, true
+	case platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_INTERNAL_ERROR:
+		return readiness.ProviderHealthReasonInternalError, true
+	case platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_SHUTTING_DOWN:
+		return readiness.ProviderHealthReasonShuttingDown, true
 	default:
-		return false
+		return "", false
 	}
 }

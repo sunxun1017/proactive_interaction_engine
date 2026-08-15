@@ -101,6 +101,7 @@ func (r *Registry) RegisterCapabilityProvider(ctx context.Context, request *plat
 			Capabilities:          cloneCapabilities(declaration.capabilities),
 			OperationalProfile:    cloneOperationalProfile(declaration.operationalProfile),
 			Health:                declaration.health,
+			HealthReason:          declaration.healthReason,
 			LeaseExpiresAt:        expiresAt,
 		},
 	}
@@ -117,7 +118,7 @@ func (r *Registry) HeartbeatCapabilityProvider(ctx context.Context, request *pla
 	if err := contextStatus(ctx); err != nil {
 		return nil, err
 	}
-	leaseID, health, err := normalizeHeartbeat(request)
+	leaseID, health, healthReason, err := normalizeHeartbeat(request)
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +137,7 @@ func (r *Registry) HeartbeatCapabilityProvider(ctx context.Context, request *pla
 		return nil, status.Error(codes.DeadlineExceeded, "capability provider lease expired")
 	}
 	record.snapshot.Health = health
+	record.snapshot.HealthReason = healthReason
 	record.snapshot.LeaseExpiresAt = now.Add(r.leaseDuration)
 	r.notifySubscribersLocked()
 	return &platformv1.HeartbeatCapabilityProviderResponse{
