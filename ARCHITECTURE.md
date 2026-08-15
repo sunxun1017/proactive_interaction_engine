@@ -19,7 +19,7 @@ Proactive Interaction Engine 只负责：观察事实、编译语义事件、维
 9. 每个动作包含 ID、交互 ID、截止时间、抢占策略、所需能力和幂等语义。
 10. 不支持的能力永远不能出现在 BehaviorPlan 或 ActionCommand 中。
 11. 场景只组合已注册、健康、获授权且协议兼容的强类型能力；能力缺失和冲突按显式 fallback 降级。
-12. 生物识别 Worker 只输出候选，身份必须经 Identity Resolver；原始媒体、embedding 和模板不得进入核心或语义审计。
+12. 生物 Worker 只输出与能力对应的强类型 evidence，identification/verification 只输出候选而不输出可信身份；身份必须经 Identity Resolver，原始媒体、embedding 和模板不得进入核心或语义审计。
 
 ## Dependency Direction
 
@@ -73,7 +73,9 @@ Observation
 
 `UserReply` 是可信 PC 输入边界在应用层响应窗口开放时构造的规范化 Observation。首版完全免按键：`[opened_at, deadline)` 内检测到任意人声即视为用户回应；窗口外人声不能生成 `UserReply`。响应窗口是唯一对话指向信号，Ingress 忽略已弃用且不可信的 `addressing_agent` 并把接受的人声置信度规范化为 1；VAD worker 不读取行为树、Episode、Outcome 或 Wakeup token。核心不接收原始 PCM、转写文本、回复内容、VAD 分数或识别启发式，只把该 Observation 编译为 `USER_REPLIED` 事实；用户回复不是 ControlCommand。
 
-跨进程 Worker 发布 Observation 时必须携带 Registry 服务端签发的 lease。Ingress 使用服务端注入时钟验证 lease 存在、Provider 健康且 `now < lease_expires_at`，并核对 `source_id` 对应注册 instance、Provider 已声明该强类型能力，且当前场景为该能力显式选择了同一 Provider。首版 gRPC Ingress 只接收 `PersonPresence`、`UserBusy` 和 `SpeechActivity`；直接发布 `UserReply`、`UserControl`、`QuietMode` 或 `DeviceCondition` 均 fail closed。Handler 只能经 `Runner.SubmitObservation` 进入单写者链路，禁止直接调用 `Engine.Process`。
+跨进程 Worker 发布普通 Observation 时必须携带 Registry 服务端签发的 lease。`ObservationIngressService` 使用服务端注入时钟验证 lease 存在、Provider 健康且 `now < lease_expires_at`，并核对 `source_id` 对应注册 instance、Provider 已声明该强类型能力，且当前场景为该能力显式选择了同一 Provider。首版 `ObservationIngressService` 只接收 `PersonPresence`、`UserBusy` 和 `SpeechActivity`；直接发布 `UserReply`、`UserControl`、`QuietMode` 或 `DeviceCondition` 均 fail closed。其 Handler 只能经 `Runner.SubmitObservation` 进入单写者链路，禁止直接调用 `Engine.Process`。
+
+生物 evidence 不通过 `ObservationIngressService`。独立的 `IdentityEvidenceIngressService` 分别接收 face detection、face identification、face liveness、speaker identification 和 speaker verification 五类强类型 RPC；每类 evidence 使用独立 capability、Provider 和 lease 边界，并校验 instance、健康、半开 expiry、场景 exact Provider、operational compatibility、权限、TTL、source sequence 与去重。RPC receipt 只表示 evidence 是否进入 application-owned window，不表示档案已注册、匹配或完成身份解析。
 
 ## Runtime and Degradation
 
@@ -114,11 +116,15 @@ Application Engine 持有当前专用 continuation，并只向 Runner 暴露不�
 
 当前只支持根 Sequence 中唯一的 `WaitEvent(user.reply)` 专用 continuation，由 Application Engine 持有；Runner 仅调度不透明 Wakeup，不解释行为树或 Episode 语义。回复后动作的 deadline 在实际下发时生成。通用 `WaitEvent`、行为树 cursor 和工作流执行器仍未实现。
 
-Stage B 无硬件产品雏形已可通过 Fake Embodiment、Fake Clock、内存审计和五条模拟场景执行。Stage C1 的强类型能力契约、Provider Registry、场景 manifest 与校验已完成；Stage C2 的基础 PC 体验也已完成：loopback Web Avatar/TTS/控制面板，私有 UDS 上的 Camera/VAD Provider，以及 Registry、Ingress、Runner 和 Engine 的纵向链路。Stage C3 生物身份仍未实现。
+Stage B 无硬件产品雏形已可通过 Fake Embodiment、Fake Clock、内存审计和五条模拟场景执行。Stage C1 的强类型能力契约、Provider Registry、场景 manifest 与校验已完成；Stage C2 的基础 PC 体验也已完成：loopback Web Avatar/TTS/控制面板，私有 UDS 上的 Camera/VAD Provider，以及 Registry、Ingress、Runner 和 Engine 的纵向链路。
+
+Stage C3 当前达到 model-independent checkpoint，而不是阶段完成。已实现严格的 scenario schema v2、Provider operational profile 校验、加密 biometric catalog/template vault 与可重试删除、确定性 Identity Resolver、identification/verification coordinators、五个 identity evidence RPC，以及 desktop 同步 runtime 和动态 readiness seam；fake/in-memory 测试覆盖这些边界。scenario schema v2 不是 Provider protocol 或 Protobuf package v2，当前跨进程契约仍位于 `proactive.platform.v1`。
+
+尚未实现真实 face/speaker/liveness 模型 Worker、注册媒体采集与模板提取、生产 master-key provider、Camera/Microphone 设备共享、UI enrollment/status 和 production desktop identity composition。`cmd/desktop.Build` 仍以 identity disabled 运行，不构造 catalog/vault/runtime，也不注册 identity evidence 服务。canonical subject identity Observation、私有记忆门控、个性化欢迎和共享家庭组合属于后续 C4。
 
 Stage C 已扩展为能力平台。Provider 声明稳定 ID、协议/实现版本、强类型能力、健康、隐私等级、延迟和取消语义；版本化场景声明 required、optional、选定 Provider、最低身份保证和确定性 fallback。首版采用显式部署配置，不实现任意动态插件或运行中热卸载。
 
-摄像头、麦克风及每项生物识别能力必须分别授权并持续显示状态。生物识别默认关闭；face detection 和 liveness 只需功能授权，face identification、speaker identification 与 speaker verification 还需逐用户注册。本地提取并加密保存模板，原始注册媒体提取后立即丢弃。VAD 和 ASR 仍是独立能力。Worker 只输出身份候选，Identity Resolver 负责阈值、融合和冲突；不确定、多人歧义或人脸/声纹冲突时回退匿名，不能加载私有记忆，也不能将生物识别用于安全认证。
+摄像头、麦克风及每项生物识别能力必须分别授权并持续显示状态。生物识别默认关闭；face detection 和 liveness 只需功能授权，face identification、speaker identification 与 speaker verification 还需逐用户注册。本地提取并加密保存模板，原始注册媒体提取后立即丢弃。VAD 和 ASR 仍是独立能力。Worker 只输出与能力对应的强类型 evidence：detection count、identification candidates、独立 liveness state、speaker identification candidates 或 application-issued challenge 的 verification candidate。Identity Resolver 负责阈值、融合和冲突；不确定、多人歧义或人脸/声纹冲突时回退匿名，不能加载私有记忆，也不能将生物识别用于安全认证。
 
 原始帧、PCM、裁剪、embedding、声纹向量、Tensor 和生物模板只存在于受控 Worker 或专用加密存储，不进入 Engine、语义审计或通用契约。控制界面只监听 loopback，首个运行平台为 Ubuntu Linux，本地语音输出使用 Speech Dispatcher。摄像头、麦克风、身份、UI 或 TTS 失效时必须独立降级，不能阻塞 P0 拒绝和核心静默路径。详细产品定义见 `docs/PRODUCT_REQUIREMENTS.md`，边界决策见 ADR 0002。
 

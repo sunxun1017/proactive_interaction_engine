@@ -19,7 +19,7 @@ Use a typed capability catalog and versioned scenario manifests.
 - Validate the complete selection before activation. Unknown, duplicate, incompatible, unhealthy, or unauthorized providers fail activation unless the scenario declares a safe fallback.
 - Keep provider and scenario configuration in application/composition layers. Domain rules consume canonical observations and immutable capability-independent state.
 - Keep face, voice, ASR, VAD, and hardware/model runtimes in isolated adapters or workers. Generated DTOs and model objects stay at the boundary.
-- Route biometric candidates through an Identity Resolver before emitting a canonical subject identity observation. Ambiguity or conflicting modalities resolve to anonymous.
+- Route biometric evidence through an Identity Resolver before emitting a canonical subject identity observation. Ambiguity or conflicting modalities resolve to anonymous.
 - Treat identification and verification as distinct capabilities. Do not use first-phase biometric results as security authentication.
 - Default biometric capabilities to disabled. Require per-subject enrollment and consent; process locally, encrypt templates, discard raw enrollment media after extraction, and support deletion.
 - Use explicit deployment-time provider selection first. Defer arbitrary code plugins and hot unload until a proven operational need exists.
@@ -31,6 +31,25 @@ Use a typed capability catalog and versioned scenario manifests.
 - The platform needs contract conformance, health supervision, identity enrollment, resolver, and privacy UI boundaries.
 - Multi-user identity will eventually add canonical identity domain language through a separately reviewed vertical slice; it does not allow platform DTOs, embeddings, or model types into the domain.
 - Anonymous operation remains a complete supported path when biometric capabilities are disabled or degraded.
+
+## Implementation Checkpoint
+
+Stage C3 has reached a model-independent checkpoint, not stage completion.
+
+Implemented:
+
+- Strict scenario schema v2 validation, explicit Provider selection, and required Provider operational profiles. Scenario schema v2 does not mean Provider protocol or Protobuf package v2; cross-process contracts remain in `proactive.platform.v1`.
+- Per-profile consent and enrollment metadata, encrypted catalog and template vault adapters, replacement, revocation, and retryable physical deletion.
+- A deterministic Identity Resolver, bounded identification windows, application-owned speaker verification challenges, and synchronous desktop runtime and live-readiness seams.
+- Five separate face detection, face identification, face liveness, speaker identification, and speaker verification evidence RPCs with lease, exact-Provider, permission, TTL, sequence, and deduplication gates.
+- Fake and in-memory integration coverage across Registry, identity ingress, resolver/runtime, and encrypted deletion boundaries.
+
+Not implemented:
+
+- Real face, speaker, or liveness model workers, enrollment capture, template extraction, or enrollment-media disposal.
+- A production master-key provider, desktop catalog/vault composition, or Camera/Microphone sharing between anonymous C2 and biometric workers.
+- Enrollment and deletion UI, per-capability biometric runtime/enrollment status, or production desktop identity activation. `cmd/desktop.Build` still runs with identity disabled.
+- Canonical subject identity observations, private-memory gates, personalized welcome, or shared-household composition; those belong to the separately reviewed C4 slice.
 
 ## Rejected Alternatives
 

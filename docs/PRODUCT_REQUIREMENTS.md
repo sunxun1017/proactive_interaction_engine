@@ -123,14 +123,14 @@ Proactive Interaction Platform 是一个可主动感知时机、发起轻量互�
 ```text
 camera / microphone
 -> face / speaker worker
--> identity candidates
+-> typed identity evidence
 -> identity resolver
 -> canonical subject identity observation
 -> Runner
 -> single-writer Engine
 ```
 
-Worker 可以输出档案引用、置信度、活体结果、模型版本和事件时间，但原始帧、PCM、人脸裁剪、声纹向量、embedding 与 tensor 不得进入 Engine、语义审计或通用消息契约。
+Worker 按能力输出彼此独立的强类型 evidence：人脸检测数量、人脸识别候选、独立活体状态、声纹识别候选，或针对 application-issued challenge 的声纹验证候选。只有 identification candidate 携带其候选档案引用；verification Provider 不提供预期档案。evidence 可以携带置信度、模型版本和事件时间，但原始帧、PCM、人脸裁剪、声纹向量、embedding 与 tensor 不得进入 Engine、语义审计或通用消息契约。
 
 Identity Resolver 负责阈值、候选融合、多人场景和冲突处理。身份不确定、多人无法选定目标或人脸与声纹冲突时必须回退 `ANONYMOUS`；不得选择分数较高的一方强行确认。匿名状态不能加载任何人的私有记忆。
 
@@ -197,9 +197,27 @@ Person Presence、免按键 VAD、Web Avatar、本地 Speech Dispatcher TTS、�
 
 进入本阶段前必须保持 C2 的匿名在场与 VAD Provider 不变；Face/Speaker 各自拥有独立 Provider、许可、注册状态与模板存储。不得以 Camera/Microphone 采集许可替代生物识别许可。
 
+状态：当前达到 Stage C3 model-independent checkpoint，尚未完成 Stage C3。
+
+已实现：
+
+- 严格 scenario schema v2、显式 Provider 选择和 operational profile 兼容校验；这不表示 Provider protocol 或 Protobuf 已进入 v2，跨进程契约仍为 `proactive.platform.v1`。
+- 每档案 consent/enrollment catalog、加密 catalog/template vault、替换、撤销和可重试物理删除。
+- 确定性 Identity Resolver、identification evidence window、application-owned speaker verification challenge，以及关闭窗口时读取最新 privacy/catalog 的同步 desktop runtime seam。
+- face detection、face identification、face liveness、speaker identification 和 speaker verification 五个独立 evidence RPC，以及 lease、exact Provider、权限、TTL、sequence 和去重校验。
+- 动态 biometric readiness seam 与 Registry/ingress/resolver/runtime/storage 的 fake/in-memory 验证。
+
+未实现：
+
+- 真实人脸、声纹和活体模型 Worker，以及注册采集、模板提取和注册媒体即时丢弃流程。
+- 生产 master-key provider、desktop catalog/vault 配置与 composition。
+- C2 Camera/VAD 与生物 Worker 的 Camera/Microphone 设备共享和生命周期协调。
+- UI enrollment、重新注册、删除、逐能力运行状态和 enrollment 状态；现有界面只有权限状态与聚合生物识别指示。
+- production `cmd/desktop.Build` 的 identity runtime、identity evidence service 和 biometric readiness 启用；当前生产组合仍为 identity disabled。
+
 ### Stage C4: Scenario Composition
 
-匿名欢迎、个性化欢迎、隐私模式、共享家庭和能力故障降级。
+canonical subject identity Observation、私有记忆门控、匿名欢迎、个性化欢迎、隐私模式、共享家庭和能力故障降级。
 
 ### Stage C5: Personalized Learning
 
@@ -210,6 +228,8 @@ Person Presence、免按键 VAD、Web Avatar、本地 Speech Dispatcher TTS、�
 Go/Python/C++ SDK、Protobuf contracts、conformance kit 与示例 Adapter。
 
 ## Stage C Acceptance
+
+以下是整个 Stage C 的最终验收标准，不表示当前 Stage C3 model-independent checkpoint 已全部满足。
 
 1. 场景能声明必需、可选能力和确定性 fallback。
 2. 未注册、协议不兼容、不健康或重复的 Provider 无法被静默选中。

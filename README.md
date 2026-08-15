@@ -14,10 +14,13 @@
 - 响应窗口到期后的 `NO_RESPONSE` Outcome、5 分钟单用户冷却与自动 `RETURN_IDLE`
 - 欢迎、保持静默、用户回复、显式拒绝和无响应五条模拟场景
 - 强类型能力契约、Provider Registry、严格场景 manifest 与显式 Provider 选择
+- 严格的 scenario schema v2 与 Provider operational profile 兼容校验；跨进程 Protobuf 和 Provider protocol 仍为 v1
 - 带 Provider lease 校验的 gRPC Ingress fake-media 纵向闭环
 - 私有 UDS 上的真实 Camera/VAD Provider、15 秒租约与独立降级
 - 默认关闭且可分别撤销的 Camera/Microphone 权限、持续 Provider 状态
 - loopback typed Web 控制面板、Web Avatar 与本地 Speech Dispatcher TTS
+- Stage C3 model-independent checkpoint：加密生物 catalog/vault 与删除、Identity Resolver/coordinator、五个独立 evidence RPC，以及 desktop 同步 runtime/live readiness seam
+- Registry、identity ingress、resolver/runtime 和加密删除的 fake/in-memory 纵向验证
 - Protobuf 外部契约、行为与配置样例、架构依赖测试
 - 仓库级 Agent Skill 与 Git/CI 约束
 
@@ -38,13 +41,17 @@ go run ./cmd/simulator -timeout
 
 `-reply` 使用 Fake Clock 演示用户在响应窗口内回复后记录 `ACCEPTED`；`-reject` 演示 `StopAll`、`REJECTED` 与 30 分钟冷却（P0 抢占顺序由 Runner 集成测试验证）；`-timeout` 精确推进到响应截止时刻，记录 `NO_RESPONSE`、进入 5 分钟冷却并执行 `RETURN_IDLE`。
 
-Stage B 的无硬件产品雏形和 Stage C2 的基础 PC 体验已完成。Camera worker 使用 HOG/upper-body 的匿名人体检测，不运行人脸识别；Microphone worker 使用本地 WebRTC VAD，响应窗口内任何稳定人声都可由可信 Ingress 转为回复。原始帧/PCM 不出 worker，不录制、不转写。Stage C3 的人脸/声纹注册、识别、加密模板和 Identity Resolver 是下一阶段，当前不伪装这些能力。核心仍只支持欢迎计划中专用的 `WaitEvent(user.reply)` continuation，不是通用工作流执行器。
+Stage B 的无硬件产品雏形和 Stage C2 的基础 PC 体验已完成。Camera worker 使用 HOG/upper-body 的匿名人体检测，不运行人脸识别；Microphone worker 使用本地 WebRTC VAD，响应窗口内任何稳定人声都可由可信 Ingress 转为回复。原始帧/PCM 不出 worker，不录制、不转写。
+
+Stage C3 当前只达到 model-independent checkpoint：模型无关的身份契约、授权、加密存储、删除、解析、窗口协调、ingress 和 desktop composition seam 已由 fake/in-memory 测试验证。这不表示真实生物识别或 Stage C3 已完成：仓库尚无真实人脸/声纹/活体模型与注册采集、生产 master-key provider、Camera/Microphone 设备共享、UI enrollment/status，也未在生产 `cmd/desktop.Build` 中启用 identity。canonical subject identity、私有记忆读取和个性化欢迎属于后续 C4；核心仍只支持欢迎计划中专用的 `WaitEvent(user.reply)` continuation，不是通用工作流执行器。
 
 相关增量验证：
 
 ```bash
 go test ./adapters/capability/registry ./adapters/config/scenario ./adapters/input/ingress
 go test -race ./adapters/input/ingress
+go test ./internal/application/biometric ./internal/application/identity
+go test ./adapters/storage/biometricvault ./adapters/identity/ingress ./cmd/desktop
 go test ./tests/architecture
 make media-env
 make media-test
