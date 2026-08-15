@@ -15,7 +15,7 @@ media:
   # explicit absolute flag overrides and never silently selects another device.
   camera_device: /dev/video0
   pulse_capture_binary: /usr/bin/pacat
-  worker_python: .venv-media/bin/python3.10
+  worker_python: .conda-gpu/bin/python
   provider_lease: 15s
   provider_health_check: 1s
   worker_stop_timeout: 3s
@@ -23,3 +23,5 @@ privacy:
   camera_capture_default: false
   microphone_capture_default: false
   biometric_default: false
+identity:
+  enabled: false

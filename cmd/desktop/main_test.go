@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"connectrpc.com/connect"
 	platformv1 "proactive-interaction-engine/gen/go/proactive/platform/v1"
 	"proactive-interaction-engine/gen/go/proactive/platform/v1/platformv1connect"
+	"proactive-interaction-engine/internal/application/identity"
 	"proactive-interaction-engine/internal/domain/fault"
 )
 
@@ -48,6 +50,68 @@ func TestConfigValidationFailsBeforeExternalWork(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			config := valid
 			test.mutate(&config)
+			if err := config.Validate(); !fault.IsCode(err, fault.InvalidInput) {
+				t.Fatalf("Validate() error = %v, want InvalidInput", err)
+			}
+		})
+	}
+}
+
+func TestIdentityConfigValidationIsStrictAndConditional(t *testing.T) {
+	valid := testConfig(t)
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("Validate(disabled identity) error = %v", err)
+	}
+
+	dormant := valid
+	dormant.Identity.BiometricProfileRef = "profile-a"
+	if err := dormant.Validate(); !fault.IsCode(err, fault.InvalidInput) {
+		t.Fatalf("Validate(disabled identity with dormant fields) error = %v, want InvalidInput", err)
+	}
+
+	valid.Identity = validIdentityConfig(t)
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("Validate(enabled identity) error = %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*IdentityConfig)
+	}{
+		{name: "blank profile", mutate: func(config *IdentityConfig) { config.BiometricProfileRef = "" }},
+		{name: "spaced profile", mutate: func(config *IdentityConfig) { config.BiometricProfileRef = " profile-a " }},
+		{name: "oversized profile", mutate: func(config *IdentityConfig) { config.BiometricProfileRef = strings.Repeat("a", 257) }},
+		{name: "relative vault", mutate: func(config *IdentityConfig) { config.VaultRoot = "vault" }},
+		{name: "filesystem root vault", mutate: func(config *IdentityConfig) { config.VaultRoot = "/" }},
+		{name: "unclean vault", mutate: func(config *IdentityConfig) { config.VaultRoot += "/../vault" }},
+		{name: "relative secret runtime", mutate: func(config *IdentityConfig) { config.SecretServiceRuntimeDirectory = "runtime" }},
+		{name: "same storage paths", mutate: func(config *IdentityConfig) { config.SecretServiceRuntimeDirectory = config.VaultRoot }},
+		{name: "nested storage paths", mutate: func(config *IdentityConfig) {
+			config.SecretServiceRuntimeDirectory = filepath.Join(config.VaultRoot, "runtime")
+		}},
+		{name: "blank policy version", mutate: func(config *IdentityConfig) { config.Policy.Version = "" }},
+		{name: "oversized policy version", mutate: func(config *IdentityConfig) { config.Policy.Version = strings.Repeat("v", 257) }},
+		{name: "zero face threshold", mutate: func(config *IdentityConfig) { config.Policy.FaceIdentificationThreshold = 0 }},
+		{name: "nan speaker threshold", mutate: func(config *IdentityConfig) { config.Policy.SpeakerIdentificationThreshold = math.NaN() }},
+		{name: "face liveness not required", mutate: func(config *IdentityConfig) { config.Policy.RequireFaceLiveness = false }},
+		{name: "skew exceeds age", mutate: func(config *IdentityConfig) {
+			config.Policy.MaxEvidenceSkew = config.Policy.MaxEvidenceAge + time.Nanosecond
+		}},
+		{name: "window exceeds age", mutate: func(config *IdentityConfig) {
+			config.Identification.WindowDuration = config.Policy.MaxEvidenceAge + time.Nanosecond
+		}},
+		{name: "challenge exceeds age", mutate: func(config *IdentityConfig) {
+			config.Verification.ChallengeDuration = config.Policy.MaxEvidenceAge + time.Nanosecond
+		}},
+		{name: "zero window capacity", mutate: func(config *IdentityConfig) { config.Identification.MaxOpenWindows = 0 }},
+		{name: "excess challenge capacity", mutate: func(config *IdentityConfig) { config.Verification.MaxOpenChallenges = 1025 }},
+		{name: "zero tracked sources", mutate: func(config *IdentityConfig) { config.MaxTrackedSources = 0 }},
+		{name: "excess tracked sources", mutate: func(config *IdentityConfig) { config.MaxTrackedSources = 1025 }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := valid
+			test.mutate(&config.Identity)
 			if err := config.Validate(); !fault.IsCode(err, fault.InvalidInput) {
 				t.Fatalf("Validate() error = %v, want InvalidInput", err)
 			}
@@ -237,6 +301,25 @@ scenario:
 		ProviderLeaseDuration:  15 * time.Second,
 		ProviderHealthInterval: time.Second,
 		WorkerStopTimeout:      time.Second,
+	}
+}
+
+func validIdentityConfig(t *testing.T) IdentityConfig {
+	t.Helper()
+	root := t.TempDir()
+	return IdentityConfig{
+		Enabled:                       true,
+		BiometricProfileRef:           "profile-a",
+		VaultRoot:                     filepath.Join(root, "vault"),
+		SecretServiceRuntimeDirectory: filepath.Join(t.TempDir(), "secret-service-runtime"),
+		Policy: identity.Policy{
+			Version: "identity-policy.test", FaceIdentificationThreshold: 0.8,
+			SpeakerIdentificationThreshold: 0.75, SpeakerVerificationThreshold: 0.9,
+			MaxEvidenceAge: 5 * time.Second, MaxEvidenceSkew: time.Second, RequireFaceLiveness: true,
+		},
+		Identification:    identity.IdentificationCoordinatorConfig{WindowDuration: time.Second, MaxOpenWindows: 4},
+		Verification:      identity.SpeakerVerificationCoordinatorConfig{ChallengeDuration: time.Second, MaxOpenChallenges: 4},
+		MaxTrackedSources: 16,
 	}
 }
 

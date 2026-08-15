@@ -47,28 +47,9 @@ func TestDesktopIdentityFakeProviderEndToEnd(t *testing.T) {
 			t.Fatalf("enable %s: %v", permission, err)
 		}
 	}
-	catalog, err := biometric.New(ctx, &identityE2EBiometricRepository{}, clock)
+	catalog, err := biometric.New(ctx, &identityE2EBiometricRepository{snapshot: identityE2EActiveCatalog(now)}, clock)
 	if err != nil {
 		t.Fatalf("biometric.New() error = %v", err)
-	}
-	for _, enrollment := range []struct {
-		capability readiness.CapabilityKind
-		template   string
-		model      string
-	}{
-		{readiness.FaceIdentification, "face-template", "face.model.v1"},
-		{readiness.SpeakerIdentification, "speaker-template", "speaker.model.v1"},
-		{readiness.SpeakerVerification, "verification-template", "verification.model.v1"},
-	} {
-		if _, err := catalog.GrantConsent(ctx, biometric.ConsentCommand{ProfileRef: "profile-a", Capability: enrollment.capability}); err != nil {
-			t.Fatalf("grant %s consent: %v", enrollment.capability, err)
-		}
-		if _, err := catalog.Register(ctx, biometric.Registration{
-			ProfileRef: "profile-a", Capability: enrollment.capability,
-			TemplateRef: enrollment.template, ModelVersion: enrollment.model,
-		}); err != nil {
-			t.Fatalf("register %s enrollment: %v", enrollment.capability, err)
-		}
 	}
 
 	runtime, err := newDesktopIdentityRuntime(desktopIdentityRuntimeConfig{
@@ -417,10 +398,37 @@ func (r *identityE2EBiometricRepository) Save(_ context.Context, expected uint64
 func cloneIdentityE2EBiometricSnapshot(snapshot biometric.Snapshot) biometric.Snapshot {
 	snapshot.Records = append([]biometric.Record(nil), snapshot.Records...)
 	for index := range snapshot.Records {
+		if snapshot.Records[index].PendingStore != nil {
+			pending := *snapshot.Records[index].PendingStore
+			snapshot.Records[index].PendingStore = &pending
+		}
 		if snapshot.Records[index].PendingDelete != nil {
 			pending := *snapshot.Records[index].PendingDelete
 			snapshot.Records[index].PendingDelete = &pending
 		}
 	}
 	return snapshot
+}
+
+func identityE2EActiveCatalog(at time.Time) biometric.Snapshot {
+	return biometric.Snapshot{Revision: 1, Records: []biometric.Record{
+		{
+			ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
+			Consented: true, ConsentVersion: 1, ConsentUpdatedAt: at,
+			TemplateRef: "face-template", ModelVersion: "face.model.v1",
+			Status: biometric.EnrollmentActive, EnrollmentUpdatedAt: at,
+		},
+		{
+			ProfileRef: "profile-a", Capability: readiness.SpeakerIdentification,
+			Consented: true, ConsentVersion: 1, ConsentUpdatedAt: at,
+			TemplateRef: "speaker-template", ModelVersion: "speaker.model.v1",
+			Status: biometric.EnrollmentActive, EnrollmentUpdatedAt: at,
+		},
+		{
+			ProfileRef: "profile-a", Capability: readiness.SpeakerVerification,
+			Consented: true, ConsentVersion: 1, ConsentUpdatedAt: at,
+			TemplateRef: "verification-template", ModelVersion: "verification.model.v1",
+			Status: biometric.EnrollmentActive, EnrollmentUpdatedAt: at,
+		},
+	}}
 }

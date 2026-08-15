@@ -19,6 +19,7 @@ import (
 	"proactive-interaction-engine/adapters/embodiment/webavatar"
 	inputingress "proactive-interaction-engine/adapters/input/ingress"
 	"proactive-interaction-engine/adapters/model/local"
+	"proactive-interaction-engine/adapters/storage/biometricvault"
 	memorystorage "proactive-interaction-engine/adapters/storage/memory"
 	"proactive-interaction-engine/adapters/storage/privacyfile"
 	"proactive-interaction-engine/adapters/transport/localgrpc"
@@ -50,6 +51,7 @@ type App struct {
 	runner          *lifecycle.Runner
 	workers         *supervisor.Supervisor
 	workerTransport *localgrpc.Server
+	identity        *desktopIdentityComposition
 	origin          string
 	token           string
 	shutdownTimeout time.Duration
@@ -60,6 +62,12 @@ type App struct {
 // Build validates and constructs the complete base desktop experience before
 // starting any long-running goroutine.
 func Build(config Config) (_ *App, err error) {
+	return build(config, func(input biometricvault.SecretServiceMasterKeyConfig) (biometricvault.MasterKeyProvider, error) {
+		return biometricvault.NewSecretServiceMasterKeyProvider(input)
+	})
+}
+
+func build(config Config, newMasterKeyProvider identityMasterKeyProviderFactory) (_ *App, err error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -120,6 +128,17 @@ func Build(config Config) (_ *App, err error) {
 	if err != nil {
 		return nil, err
 	}
+	var identityComposition *desktopIdentityComposition
+	if config.Identity.Enabled {
+		identityContext, cancelIdentity := context.WithTimeout(context.Background(), config.ExternalCallTimeout)
+		identityComposition, err = newDesktopIdentityComposition(
+			identityContext, config.Identity, permissions, registry, clock, loadedScenario.Requirements, newMasterKeyProvider,
+		)
+		cancelIdentity()
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	var speaker webavatar.Speaker
 	if config.TTSBinary != "" {
@@ -154,7 +173,11 @@ func Build(config Config) (_ *App, err error) {
 	if err != nil {
 		return nil, err
 	}
-	activation, err := newActivationView(loadedScenario.Requirements, registry, clock, activationViewOptions{TTSEnabled: speaker != nil})
+	activationOptions := activationViewOptions{TTSEnabled: speaker != nil}
+	if identityComposition != nil {
+		activationOptions.Identity = identityComposition.readiness
+	}
+	activation, err := newActivationView(loadedScenario.Requirements, registry, clock, activationOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +197,9 @@ func Build(config Config) (_ *App, err error) {
 	}()
 	platformv1.RegisterCapabilityProviderRegistryServiceServer(workerTransport.GRPC(), registry)
 	platformv1.RegisterObservationIngressServiceServer(workerTransport.GRPC(), ingress)
+	if identityComposition != nil {
+		platformv1.RegisterIdentityEvidenceIngressServiceServer(workerTransport.GRPC(), identityComposition.ingress)
+	}
 	workers, err := supervisor.New(supervisor.Config{
 		StopTimeout:         config.WorkerStopTimeout,
 		HealthCheckInterval: config.ProviderHealthInterval,
@@ -217,6 +243,7 @@ func Build(config Config) (_ *App, err error) {
 		runner:          runner,
 		workers:         workers,
 		workerTransport: workerTransport,
+		identity:        identityComposition,
 		origin:          origin,
 		token:           token,
 		shutdownTimeout: config.ShutdownTimeout,

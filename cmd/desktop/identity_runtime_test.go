@@ -516,7 +516,7 @@ func identityPermissionSnapshot(at time.Time, enabled ...privacy.Permission) pri
 
 func identityCatalogSnapshot(at time.Time, profile string, capability readiness.CapabilityKind, modelVersion string) biometric.Snapshot {
 	return biometric.Snapshot{Revision: 1, Records: []biometric.Record{{
-		ProfileRef: profile, Capability: capability, Consented: true, ConsentUpdatedAt: at,
+		ProfileRef: profile, Capability: capability, Consented: true, ConsentVersion: 1, ConsentUpdatedAt: at,
 		TemplateRef: "template-ref", ModelVersion: modelVersion,
 		Status: biometric.EnrollmentActive, EnrollmentUpdatedAt: at,
 	}}}
