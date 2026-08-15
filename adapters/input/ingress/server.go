@@ -80,11 +80,7 @@ func NewServer(
 	if isNilDependency(leases) || isNilDependency(submitter) || isNilDependency(windows) || isNilDependency(activation) || isNilDependency(clock) {
 		return nil, errors.New("lease reader, observation submitter, reply window reader, activation reader, and clock are required")
 	}
-	copied := readiness.ScenarioRequirements{
-		ID:       scenario.ID,
-		Required: append([]readiness.CapabilityRequirement(nil), scenario.Required...),
-		Optional: append([]readiness.OptionalCapability(nil), scenario.Optional...),
-	}
+	copied := cloneScenarioRequirements(scenario)
 	if err := readiness.ValidateScenario(copied); err != nil {
 		return nil, err
 	}
@@ -103,6 +99,26 @@ func NewServer(
 		clock:      clock,
 		selected:   selected,
 	}, nil
+}
+
+func cloneScenarioRequirements(input readiness.ScenarioRequirements) readiness.ScenarioRequirements {
+	output := input
+	output.Required = append([]readiness.CapabilityRequirement(nil), input.Required...)
+	for index := range output.Required {
+		output.Required[index].Compatibility = cloneProviderCompatibility(input.Required[index].Compatibility)
+	}
+	output.Optional = append([]readiness.OptionalCapability(nil), input.Optional...)
+	for index := range output.Optional {
+		output.Optional[index].Compatibility = cloneProviderCompatibility(input.Optional[index].Compatibility)
+	}
+	return output
+}
+
+func cloneProviderCompatibility(input readiness.ProviderCompatibility) readiness.ProviderCompatibility {
+	input.AllowedPrivacyClasses = append([]readiness.ProviderPrivacyClass(nil), input.AllowedPrivacyClasses...)
+	input.AllowedCancellationSemantics = append([]readiness.ProviderCancellationSemantics(nil), input.AllowedCancellationSemantics...)
+	input.AllowedDeviceClasses = append([]readiness.ProviderDeviceClass(nil), input.AllowedDeviceClasses...)
+	return input
 }
 
 func isNilDependency(value any) bool {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"time"
 
 	"proactive-interaction-engine/internal/application/readiness"
 	"proactive-interaction-engine/internal/domain/fault"
@@ -17,7 +18,7 @@ import (
 
 const (
 	loadOp                 = "load scenario manifest"
-	supportedSchemaVersion = "v1"
+	supportedSchemaVersion = "v2"
 )
 
 // LoadedScenario is the validated canonical declaration and its reproducible
@@ -38,49 +39,92 @@ func (value *strictString) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
+type strictStringList struct {
+	Present bool
+	Values  []strictString
+}
+
+func (value *strictStringList) UnmarshalYAML(node *yaml.Node) error {
+	if node == nil || node.Kind != yaml.SequenceNode {
+		return errors.New("value must be a YAML sequence")
+	}
+	value.Present = true
+	value.Values = make([]strictString, 0, len(node.Content))
+	for _, item := range node.Content {
+		var decoded strictString
+		if err := decoded.UnmarshalYAML(item); err != nil {
+			return err
+		}
+		value.Values = append(value.Values, decoded)
+	}
+	return nil
+}
+
 type wireManifest struct {
 	SchemaVersion strictString  `yaml:"schema_version"`
 	Scenario      *wireScenario `yaml:"scenario"`
 }
 
 type wireScenario struct {
-	ID       strictString      `yaml:"id"`
-	Version  strictString      `yaml:"version"`
-	Required []wireRequirement `yaml:"required"`
-	Optional []wireOptional    `yaml:"optional"`
+	ID                       strictString      `yaml:"id"`
+	Version                  strictString      `yaml:"version"`
+	MinimumIdentityAssurance strictString      `yaml:"minimum_identity_assurance"`
+	Required                 []wireRequirement `yaml:"required"`
+	Optional                 []wireOptional    `yaml:"optional"`
 }
 
 type wireRequirement struct {
-	Capability strictString `yaml:"capability"`
-	ProviderID strictString `yaml:"provider_id"`
+	Capability    strictString       `yaml:"capability"`
+	ProviderID    strictString       `yaml:"provider_id"`
+	Compatibility *wireCompatibility `yaml:"compatibility"`
 }
 
 type wireOptional struct {
-	Capability strictString `yaml:"capability"`
-	ProviderID strictString `yaml:"provider_id"`
-	Fallback   strictString `yaml:"fallback"`
+	Capability    strictString       `yaml:"capability"`
+	ProviderID    strictString       `yaml:"provider_id"`
+	Fallback      strictString       `yaml:"fallback"`
+	Compatibility *wireCompatibility `yaml:"compatibility"`
+}
+
+type wireCompatibility struct {
+	ProtocolVersion              strictString     `yaml:"protocol_version"`
+	AllowedPrivacyClasses        strictStringList `yaml:"allowed_privacy_classes"`
+	MaximumLatency               strictString     `yaml:"maximum_latency"`
+	AllowedCancellationSemantics strictStringList `yaml:"allowed_cancellation_semantics"`
+	AllowedDeviceClasses         strictStringList `yaml:"allowed_device_classes"`
 }
 
 type canonicalContent struct {
-	SchemaVersion   string                 `json:"schema_version"`
-	ScenarioID      string                 `json:"scenario_id"`
-	ScenarioVersion string                 `json:"scenario_version"`
-	Required        []canonicalRequirement `json:"required"`
-	Optional        []canonicalOptional    `json:"optional"`
+	SchemaVersion            string                 `json:"schema_version"`
+	ScenarioID               string                 `json:"scenario_id"`
+	ScenarioVersion          string                 `json:"scenario_version"`
+	MinimumIdentityAssurance string                 `json:"minimum_identity_assurance"`
+	Required                 []canonicalRequirement `json:"required"`
+	Optional                 []canonicalOptional    `json:"optional"`
 }
 
 type canonicalRequirement struct {
-	Capability string `json:"capability"`
-	ProviderID string `json:"provider_id"`
+	Capability    string                 `json:"capability"`
+	ProviderID    string                 `json:"provider_id"`
+	Compatibility canonicalCompatibility `json:"compatibility"`
 }
 
 type canonicalOptional struct {
-	Capability string `json:"capability"`
-	ProviderID string `json:"provider_id"`
-	Fallback   string `json:"fallback"`
+	Capability    string                 `json:"capability"`
+	ProviderID    string                 `json:"provider_id"`
+	Fallback      string                 `json:"fallback"`
+	Compatibility canonicalCompatibility `json:"compatibility"`
 }
 
-// Load decodes exactly one strict v1 YAML document from reader.
+type canonicalCompatibility struct {
+	ProtocolVersion              string   `json:"protocol_version"`
+	AllowedPrivacyClasses        []string `json:"allowed_privacy_classes"`
+	MaximumLatencyNanoseconds    int64    `json:"maximum_latency_nanoseconds"`
+	AllowedCancellationSemantics []string `json:"allowed_cancellation_semantics"`
+	AllowedDeviceClasses         []string `json:"allowed_device_classes"`
+}
+
+// Load decodes exactly one strict v2 YAML document from reader.
 func Load(reader io.Reader) (LoadedScenario, error) {
 	if reader == nil {
 		return LoadedScenario{}, invalidInput(errors.New("reader is required"))
@@ -130,8 +174,13 @@ func Load(reader io.Reader) (LoadedScenario, error) {
 }
 
 func mapRequirements(input wireScenario) (readiness.ScenarioRequirements, error) {
+	assurance, ok := mapIdentityAssurance(string(input.MinimumIdentityAssurance))
+	if !ok {
+		return readiness.ScenarioRequirements{}, invalidInput(fmt.Errorf("unknown minimum identity assurance %q", input.MinimumIdentityAssurance))
+	}
 	requirements := readiness.ScenarioRequirements{
-		ID: string(input.ID),
+		ID:                       string(input.ID),
+		MinimumIdentityAssurance: assurance,
 	}
 	if len(input.Required) > 0 {
 		requirements.Required = make([]readiness.CapabilityRequirement, 0, len(input.Required))
@@ -144,9 +193,12 @@ func mapRequirements(input wireScenario) (readiness.ScenarioRequirements, error)
 		if !ok {
 			return readiness.ScenarioRequirements{}, invalidInput(fmt.Errorf("unknown capability %q", item.Capability))
 		}
+		compatibility, err := mapCompatibility(item.Compatibility)
+		if err != nil {
+			return readiness.ScenarioRequirements{}, err
+		}
 		requirements.Required = append(requirements.Required, readiness.CapabilityRequirement{
-			Kind:       kind,
-			ProviderID: string(item.ProviderID),
+			Kind: kind, ProviderID: string(item.ProviderID), Compatibility: compatibility,
 		})
 	}
 	for _, item := range input.Optional {
@@ -158,13 +210,113 @@ func mapRequirements(input wireScenario) (readiness.ScenarioRequirements, error)
 		if !ok {
 			return readiness.ScenarioRequirements{}, invalidInput(fmt.Errorf("unknown fallback %q", item.Fallback))
 		}
+		compatibility, err := mapCompatibility(item.Compatibility)
+		if err != nil {
+			return readiness.ScenarioRequirements{}, err
+		}
 		requirements.Optional = append(requirements.Optional, readiness.OptionalCapability{
-			Kind:       kind,
-			ProviderID: string(item.ProviderID),
-			Fallback:   fallback,
+			Kind: kind, ProviderID: string(item.ProviderID), Fallback: fallback, Compatibility: compatibility,
 		})
 	}
 	return requirements, nil
+}
+
+func mapIdentityAssurance(input string) (readiness.IdentityAssurance, bool) {
+	switch input {
+	case "ANONYMOUS":
+		return readiness.IdentityAssuranceAnonymous, true
+	case "RECOGNIZED":
+		return readiness.IdentityAssuranceRecognized, true
+	case "VERIFIED":
+		return readiness.IdentityAssuranceVerified, true
+	default:
+		return "", false
+	}
+}
+
+func mapCompatibility(input *wireCompatibility) (readiness.ProviderCompatibility, error) {
+	if input == nil {
+		return readiness.ProviderCompatibility{}, invalidInput(errors.New("compatibility is required for every capability selection"))
+	}
+	if !input.AllowedDeviceClasses.Present {
+		return readiness.ProviderCompatibility{}, invalidInput(errors.New("allowed_device_classes is required in compatibility"))
+	}
+	maximumLatency, err := time.ParseDuration(string(input.MaximumLatency))
+	if err != nil {
+		return readiness.ProviderCompatibility{}, invalidInput(fmt.Errorf("parse maximum latency %q: %w", input.MaximumLatency, err))
+	}
+	privacyClasses := make([]readiness.ProviderPrivacyClass, 0, len(input.AllowedPrivacyClasses.Values))
+	for _, value := range input.AllowedPrivacyClasses.Values {
+		mapped, ok := mapPrivacyClass(string(value))
+		if !ok {
+			return readiness.ProviderCompatibility{}, invalidInput(fmt.Errorf("unknown privacy class %q", value))
+		}
+		privacyClasses = append(privacyClasses, mapped)
+	}
+	cancellation := make([]readiness.ProviderCancellationSemantics, 0, len(input.AllowedCancellationSemantics.Values))
+	for _, value := range input.AllowedCancellationSemantics.Values {
+		mapped, ok := mapCancellationSemantics(string(value))
+		if !ok {
+			return readiness.ProviderCompatibility{}, invalidInput(fmt.Errorf("unknown cancellation semantics %q", value))
+		}
+		cancellation = append(cancellation, mapped)
+	}
+	devices := make([]readiness.ProviderDeviceClass, 0, len(input.AllowedDeviceClasses.Values))
+	for _, value := range input.AllowedDeviceClasses.Values {
+		mapped, ok := mapDeviceClass(string(value))
+		if !ok {
+			return readiness.ProviderCompatibility{}, invalidInput(fmt.Errorf("unknown device class %q", value))
+		}
+		devices = append(devices, mapped)
+	}
+	return readiness.ProviderCompatibility{
+		ProtocolVersion:              string(input.ProtocolVersion),
+		AllowedPrivacyClasses:        privacyClasses,
+		MaximumLatency:               maximumLatency,
+		AllowedCancellationSemantics: cancellation,
+		AllowedDeviceClasses:         devices,
+	}, nil
+}
+
+func mapPrivacyClass(input string) (readiness.ProviderPrivacyClass, bool) {
+	switch input {
+	case "DEVICE_LOCAL":
+		return readiness.ProviderPrivacyDeviceLocal, true
+	case "REMOTE_PROCESSING":
+		return readiness.ProviderPrivacyRemoteProcessing, true
+	default:
+		return "", false
+	}
+}
+
+func mapCancellationSemantics(input string) (readiness.ProviderCancellationSemantics, bool) {
+	switch input {
+	case "NOT_SUPPORTED":
+		return readiness.ProviderCancellationNotSupported, true
+	case "COOPERATIVE":
+		return readiness.ProviderCancellationCooperative, true
+	case "BOUNDED":
+		return readiness.ProviderCancellationBounded, true
+	default:
+		return "", false
+	}
+}
+
+func mapDeviceClass(input string) (readiness.ProviderDeviceClass, bool) {
+	switch input {
+	case "CAMERA":
+		return readiness.ProviderDeviceCamera, true
+	case "MICROPHONE":
+		return readiness.ProviderDeviceMicrophone, true
+	case "DISPLAY":
+		return readiness.ProviderDeviceDisplay, true
+	case "AUDIO_OUTPUT":
+		return readiness.ProviderDeviceAudioOutput, true
+	case "EMBODIMENT_CONTROLLER":
+		return readiness.ProviderDeviceEmbodimentController, true
+	default:
+		return "", false
+	}
 }
 
 func mapCapability(input string) (readiness.CapabilityKind, bool) {
@@ -230,6 +382,12 @@ func mapFallback(input string) (readiness.Fallback, bool) {
 }
 
 func normalizeRequirements(requirements *readiness.ScenarioRequirements) {
+	for index := range requirements.Required {
+		normalizeCompatibility(&requirements.Required[index].Compatibility)
+	}
+	for index := range requirements.Optional {
+		normalizeCompatibility(&requirements.Optional[index].Compatibility)
+	}
 	sort.Slice(requirements.Required, func(i, j int) bool {
 		if requirements.Required[i].Kind != requirements.Required[j].Kind {
 			return requirements.Required[i].Kind < requirements.Required[j].Kind
@@ -247,25 +405,37 @@ func normalizeRequirements(requirements *readiness.ScenarioRequirements) {
 	})
 }
 
+func normalizeCompatibility(compatibility *readiness.ProviderCompatibility) {
+	sort.Slice(compatibility.AllowedPrivacyClasses, func(i, j int) bool {
+		return compatibility.AllowedPrivacyClasses[i] < compatibility.AllowedPrivacyClasses[j]
+	})
+	sort.Slice(compatibility.AllowedCancellationSemantics, func(i, j int) bool {
+		return compatibility.AllowedCancellationSemantics[i] < compatibility.AllowedCancellationSemantics[j]
+	})
+	sort.Slice(compatibility.AllowedDeviceClasses, func(i, j int) bool {
+		return compatibility.AllowedDeviceClasses[i] < compatibility.AllowedDeviceClasses[j]
+	})
+}
+
 func hashCanonical(schemaVersion, scenarioVersion string, requirements readiness.ScenarioRequirements) (string, error) {
 	canonical := canonicalContent{
-		SchemaVersion:   schemaVersion,
-		ScenarioID:      requirements.ID,
-		ScenarioVersion: scenarioVersion,
-		Required:        make([]canonicalRequirement, 0, len(requirements.Required)),
-		Optional:        make([]canonicalOptional, 0, len(requirements.Optional)),
+		SchemaVersion:            schemaVersion,
+		ScenarioID:               requirements.ID,
+		ScenarioVersion:          scenarioVersion,
+		MinimumIdentityAssurance: string(requirements.MinimumIdentityAssurance),
+		Required:                 make([]canonicalRequirement, 0, len(requirements.Required)),
+		Optional:                 make([]canonicalOptional, 0, len(requirements.Optional)),
 	}
 	for _, item := range requirements.Required {
 		canonical.Required = append(canonical.Required, canonicalRequirement{
-			Capability: string(item.Kind),
-			ProviderID: item.ProviderID,
+			Capability: string(item.Kind), ProviderID: item.ProviderID,
+			Compatibility: canonicalizeCompatibility(item.Compatibility),
 		})
 	}
 	for _, item := range requirements.Optional {
 		canonical.Optional = append(canonical.Optional, canonicalOptional{
-			Capability: string(item.Kind),
-			ProviderID: item.ProviderID,
-			Fallback:   string(item.Fallback),
+			Capability: string(item.Kind), ProviderID: item.ProviderID, Fallback: string(item.Fallback),
+			Compatibility: canonicalizeCompatibility(item.Compatibility),
 		})
 	}
 	encoded, err := json.Marshal(canonical)
@@ -274,6 +444,26 @@ func hashCanonical(schemaVersion, scenarioVersion string, requirements readiness
 	}
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+func canonicalizeCompatibility(input readiness.ProviderCompatibility) canonicalCompatibility {
+	privacyClasses := make([]string, len(input.AllowedPrivacyClasses))
+	for index, value := range input.AllowedPrivacyClasses {
+		privacyClasses[index] = string(value)
+	}
+	cancellation := make([]string, len(input.AllowedCancellationSemantics))
+	for index, value := range input.AllowedCancellationSemantics {
+		cancellation[index] = string(value)
+	}
+	devices := make([]string, len(input.AllowedDeviceClasses))
+	for index, value := range input.AllowedDeviceClasses {
+		devices[index] = string(value)
+	}
+	return canonicalCompatibility{
+		ProtocolVersion: input.ProtocolVersion, AllowedPrivacyClasses: privacyClasses,
+		MaximumLatencyNanoseconds:    int64(input.MaximumLatency),
+		AllowedCancellationSemantics: cancellation, AllowedDeviceClasses: devices,
+	}
 }
 
 func invalidInput(err error) error {

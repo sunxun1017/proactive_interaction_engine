@@ -1,0 +1,77 @@
+schema_version: v2
+scenario:
+  id: anonymous-return-welcome
+  version: v2
+  minimum_identity_assurance: ANONYMOUS
+  required:
+    - capability: PERSON_PRESENCE
+      provider_id: desktop-presence
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 3s
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [CAMERA]
+    - capability: VOICE_ACTIVITY
+      provider_id: desktop-vad
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 1s
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [MICROPHONE]
+    - capability: DISPLAY_TEXT
+      provider_id: web-avatar
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 100ms
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [DISPLAY]
+  optional:
+    # Biometric authorization and enrollment come from the runtime policy snapshot.
+    - capability: FACE_DETECTION
+      provider_id: local-face-detection
+      fallback: ANONYMOUS_SUBJECT
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 3s
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [CAMERA]
+    - capability: FACE_IDENTIFICATION
+      provider_id: local-face-identity
+      fallback: ANONYMOUS_SUBJECT
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 3s
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [CAMERA]
+    - capability: FACE_LIVENESS
+      provider_id: local-face-liveness
+      fallback: ANONYMOUS_SUBJECT
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 3s
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [CAMERA]
+    - capability: SPEAKER_IDENTIFICATION
+      provider_id: local-speaker-identity
+      fallback: ANONYMOUS_SUBJECT
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 3s
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [MICROPHONE]
+    - capability: SPEECH_SYNTHESIS
+      provider_id: speech-dispatcher
+      fallback: VISUAL_ONLY
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 2s
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [AUDIO_OUTPUT]

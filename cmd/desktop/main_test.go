@@ -175,21 +175,46 @@ func testConfig(t *testing.T) Config {
 	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
 	writeAsset(t, wasm, []byte{0, 'a', 's', 'm'})
 	writeAsset(t, wasmExec, []byte("globalThis.Go = class Go {};"))
-	writeAsset(t, scenario, []byte(`schema_version: v1
+	writeAsset(t, scenario, []byte(`schema_version: v2
 scenario:
   id: anonymous-return-welcome
-  version: v1
+  version: v2
+  minimum_identity_assurance: ANONYMOUS
   required:
     - capability: PERSON_PRESENCE
       provider_id: desktop-presence
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 3s
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [CAMERA]
     - capability: VOICE_ACTIVITY
       provider_id: desktop-vad
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 1s
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [MICROPHONE]
     - capability: DISPLAY_TEXT
       provider_id: web-avatar
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 100ms
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [DISPLAY]
   optional:
     - capability: SPEECH_SYNTHESIS
       provider_id: speech-dispatcher
       fallback: VISUAL_ONLY
+      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 2s
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [AUDIO_OUTPUT]
 `))
 	return Config{
 		SubjectID:              "user-1",

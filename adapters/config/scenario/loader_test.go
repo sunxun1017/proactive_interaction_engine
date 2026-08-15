@@ -8,69 +8,33 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"proactive-interaction-engine/internal/application/readiness"
 	"proactive-interaction-engine/internal/domain/fault"
 )
 
-func TestLoadMinimalAndFullManifest(t *testing.T) {
-	minimal := mustLoad(t, `
-schema_version: v1
-scenario:
-  id: anonymous-welcome
-  version: v1
-  required:
-    - capability: PERSON_PRESENCE
-      provider_id: camera-main
-`)
-	wantMinimal := LoadedScenario{
+func TestLoadStrictV2Manifest(t *testing.T) {
+	loaded := mustLoad(t, requiredManifest("anonymous-welcome", "v1", "ANONYMOUS", "PERSON_PRESENCE", "camera-main"))
+	want := LoadedScenario{
 		Version: "v1",
 		Requirements: readiness.ScenarioRequirements{
-			ID:       "anonymous-welcome",
-			Required: []readiness.CapabilityRequirement{{Kind: readiness.PersonPresence, ProviderID: "camera-main"}},
+			ID:                       "anonymous-welcome",
+			MinimumIdentityAssurance: readiness.IdentityAssuranceAnonymous,
+			Required: []readiness.CapabilityRequirement{{
+				Kind: readiness.PersonPresence, ProviderID: "camera-main", Compatibility: defaultWireCompatibility(),
+			}},
 		},
 	}
-	if minimal.Version != wantMinimal.Version || !reflect.DeepEqual(minimal.Requirements, wantMinimal.Requirements) {
-		t.Fatalf("Load(minimal) = %#v, want %#v", minimal, wantMinimal)
+	if loaded.Version != want.Version || !reflect.DeepEqual(loaded.Requirements, want.Requirements) {
+		t.Fatalf("Load() = %#v, want %#v", loaded, want)
 	}
-	assertSHA256Hex(t, minimal.Hash)
+	assertSHA256Hex(t, loaded.Hash)
 
-	full := mustLoad(t, `
-schema_version: v1
-scenario:
-  id: degraded-welcome
-  version: welcome.v2
-  required:
-    - capability: PERSON_PRESENCE
-      provider_id: camera-main
-  optional:
-    - capability: FACE_IDENTIFICATION
-      provider_id: face-main
-      fallback: ANONYMOUS_SUBJECT
-    - capability: VOICE_ACTIVITY
-      provider_id: vad-main
-      fallback: NO_VOICE_REPLY
-    - capability: SPEECH_TRANSCRIPTION
-      provider_id: asr-main
-      fallback: NO_TRANSCRIPT
-    - capability: SPEECH_SYNTHESIS
-      provider_id: tts-main
-      fallback: VISUAL_ONLY
-    - capability: DISPLAY_TEXT
-      provider_id: avatar-main
-      fallback: AUDIO_ONLY
-`)
-	wantOptional := []readiness.OptionalCapability{
-		{Kind: readiness.DisplayText, ProviderID: "avatar-main", Fallback: readiness.AudioOnly},
-		{Kind: readiness.FaceIdentification, ProviderID: "face-main", Fallback: readiness.AnonymousSubject},
-		{Kind: readiness.SpeechSynthesis, ProviderID: "tts-main", Fallback: readiness.VisualOnly},
-		{Kind: readiness.SpeechTranscription, ProviderID: "asr-main", Fallback: readiness.NoTranscript},
-		{Kind: readiness.VoiceActivity, ProviderID: "vad-main", Fallback: readiness.NoVoiceReply},
+	legacy := strings.Replace(requiredManifest("legacy", "v1", "ANONYMOUS", "PERSON_PRESENCE", "camera"), "schema_version: v2", "schema_version: v1", 1)
+	if _, err := Load(strings.NewReader(legacy)); !fault.IsCode(err, fault.InvalidInput) {
+		t.Fatalf("Load(v1) error = %v, want InvalidInput", err)
 	}
-	if full.Version != "welcome.v2" || full.Requirements.ID != "degraded-welcome" || !reflect.DeepEqual(full.Requirements.Optional, wantOptional) {
-		t.Fatalf("Load(full) = %#v, want normalized optional %#v", full, wantOptional)
-	}
-	assertSHA256Hex(t, full.Hash)
 }
 
 func TestLoadMapsEveryCapabilityExplicitly(t *testing.T) {
@@ -100,14 +64,13 @@ func TestLoadMapsEveryCapabilityExplicitly(t *testing.T) {
 	}
 
 	var manifest strings.Builder
-	manifest.WriteString("schema_version: v1\nscenario:\n  id: catalog\n  version: v1\n  required:\n")
+	manifest.WriteString("schema_version: v2\nscenario:\n  id: catalog\n  version: v1\n  minimum_identity_assurance: ANONYMOUS\n  required:\n")
 	want := make([]readiness.CapabilityRequirement, 0, len(mappings))
-	for index, mapping := range mappings {
-		manifest.WriteString("    - capability: " + mapping.wire + "\n      provider_id: provider-" + mapping.wire + "\n")
-		want = append(want, readiness.CapabilityRequirement{Kind: mapping.app, ProviderID: "provider-" + mapping.wire})
-		if index > 0 && mapping.app == mappings[index-1].app {
-			t.Fatalf("test capability mapping duplicates %q", mapping.app)
-		}
+	for _, mapping := range mappings {
+		manifest.WriteString(requiredItem(mapping.wire, "provider-"+mapping.wire, defaultCompatibilityYAML))
+		want = append(want, readiness.CapabilityRequirement{
+			Kind: mapping.app, ProviderID: "provider-" + mapping.wire, Compatibility: defaultWireCompatibility(),
+		})
 	}
 	sort.Slice(want, func(i, j int) bool {
 		if want[i].Kind != want[j].Kind {
@@ -122,61 +85,82 @@ func TestLoadMapsEveryCapabilityExplicitly(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsMalformedOrInvalidManifest(t *testing.T) {
-	valid := `
-schema_version: v1
-scenario:
-  id: welcome
-  version: v1
-  required:
-    - capability: PERSON_PRESENCE
-      provider_id: camera
-`
+func TestLoadMapsIdentityAssuranceAndCompatibilityExplicitly(t *testing.T) {
+	manifest := "schema_version: v2\nscenario:\n  id: personalized\n  version: v3\n  minimum_identity_assurance: RECOGNIZED\n  optional:\n" +
+		optionalItem("FACE_IDENTIFICATION", "face", "ANONYMOUS_SUBJECT", `      compatibility:
+        protocol_version: protocol.v3
+        allowed_privacy_classes: [REMOTE_PROCESSING, DEVICE_LOCAL]
+        maximum_latency: 125ms
+        allowed_cancellation_semantics: [BOUNDED, COOPERATIVE]
+        allowed_device_classes: [MICROPHONE, CAMERA]
+`)
+	loaded := mustLoad(t, manifest)
+	want := readiness.ScenarioRequirements{
+		ID:                       "personalized",
+		MinimumIdentityAssurance: readiness.IdentityAssuranceRecognized,
+		Optional: []readiness.OptionalCapability{{
+			Kind: readiness.FaceIdentification, ProviderID: "face", Fallback: readiness.AnonymousSubject,
+			Compatibility: readiness.ProviderCompatibility{
+				ProtocolVersion:              "protocol.v3",
+				AllowedPrivacyClasses:        []readiness.ProviderPrivacyClass{readiness.ProviderPrivacyDeviceLocal, readiness.ProviderPrivacyRemoteProcessing},
+				MaximumLatency:               125 * time.Millisecond,
+				AllowedCancellationSemantics: []readiness.ProviderCancellationSemantics{readiness.ProviderCancellationBounded, readiness.ProviderCancellationCooperative},
+				AllowedDeviceClasses:         []readiness.ProviderDeviceClass{readiness.ProviderDeviceCamera, readiness.ProviderDeviceMicrophone},
+			},
+		}},
+	}
+	if !reflect.DeepEqual(loaded.Requirements, want) {
+		t.Fatalf("Load() requirements = %#v, want %#v", loaded.Requirements, want)
+	}
+}
+
+func TestLoadRejectsMalformedOrInvalidV2Manifest(t *testing.T) {
+	valid := requiredManifest("welcome", "v1", "ANONYMOUS", "PERSON_PRESENCE", "camera")
 	tests := []struct {
 		name     string
 		manifest string
 	}{
 		{name: "empty input"},
 		{name: "malformed yaml", manifest: "schema_version: ["},
+		{name: "legacy v1", manifest: strings.Replace(valid, "schema_version: v2", "schema_version: v1", 1)},
 		{name: "unknown root field", manifest: valid + "unknown_root: true\n"},
 		{name: "unknown scenario field", manifest: strings.Replace(valid, "  version: v1\n", "  version: v1\n  behavior: arbitrary\n", 1)},
-		{name: "unknown required item field", manifest: strings.Replace(valid, "      provider_id: camera\n", "      provider_id: camera\n      model: forbidden\n", 1)},
-		{name: "unknown optional item field", manifest: `
-schema_version: v1
-scenario:
-  id: welcome
-  version: v1
-  optional:
-    - capability: VOICE_ACTIVITY
-      provider_id: vad
-      fallback: NO_VOICE_REPLY
-      attributes: forbidden
-`},
+		{name: "unknown compatibility field", manifest: strings.Replace(valid, "        protocol_version: v1\n", "        protocol_version: v1\n        model: forbidden\n", 1)},
 		{name: "duplicate yaml key", manifest: strings.Replace(valid, "  id: welcome\n", "  id: welcome\n  id: duplicate\n", 1)},
-		{name: "multiple documents", manifest: valid + "---\nschema_version: v1\nscenario:\n  id: second\n  version: v1\n  required:\n    - capability: PERSON_PRESENCE\n      provider_id: camera\n"},
-		{name: "trailing nonempty document", manifest: valid + "---\nextra: value\n"},
-		{name: "missing schema", manifest: strings.Replace(valid, "schema_version: v1\n", "", 1)},
-		{name: "unknown schema", manifest: strings.Replace(valid, "schema_version: v1", "schema_version: v2", 1)},
-		{name: "numeric schema", manifest: strings.Replace(valid, "schema_version: v1", "schema_version: 1", 1)},
-		{name: "missing scenario", manifest: "schema_version: v1\n"},
+		{name: "multiple documents", manifest: valid + "---\n" + valid},
+		{name: "missing schema", manifest: strings.Replace(valid, "schema_version: v2\n", "", 1)},
+		{name: "numeric schema", manifest: strings.Replace(valid, "schema_version: v2", "schema_version: 2", 1)},
+		{name: "missing scenario", manifest: "schema_version: v2\n"},
 		{name: "empty version", manifest: strings.Replace(valid, "  version: v1", "  version: ''", 1)},
 		{name: "numeric version", manifest: strings.Replace(valid, "  version: v1", "  version: 1", 1)},
-		{name: "boolean version", manifest: strings.Replace(valid, "  version: v1", "  version: false", 1)},
 		{name: "empty id", manifest: strings.Replace(valid, "  id: welcome", "  id: ''", 1)},
-		{name: "numeric id", manifest: strings.Replace(valid, "  id: welcome", "  id: 7", 1)},
-		{name: "boolean id", manifest: strings.Replace(valid, "  id: welcome", "  id: true", 1)},
-		{name: "no capabilities", manifest: "schema_version: v1\nscenario:\n  id: welcome\n  version: v1\n  required: []\n  optional: []\n"},
+		{name: "missing assurance", manifest: strings.Replace(valid, "  minimum_identity_assurance: ANONYMOUS\n", "", 1)},
+		{name: "unknown assurance", manifest: strings.Replace(valid, "ANONYMOUS", "TRUSTED", 1)},
+		{name: "numeric assurance", manifest: strings.Replace(valid, "ANONYMOUS", "7", 1)},
+		{name: "no capabilities", manifest: "schema_version: v2\nscenario:\n  id: welcome\n  version: v1\n  minimum_identity_assurance: ANONYMOUS\n  required: []\n  optional: []\n"},
 		{name: "unknown capability", manifest: strings.Replace(valid, "PERSON_PRESENCE", "UNKNOWN", 1)},
 		{name: "numeric capability", manifest: strings.Replace(valid, "PERSON_PRESENCE", "17", 1)},
+		{name: "empty provider", manifest: strings.Replace(valid, "provider_id: 'camera'", "provider_id: ''", 1)},
+		{name: "missing compatibility", manifest: strings.Replace(valid, defaultCompatibilityYAML, "", 1)},
+		{name: "missing protocol", manifest: strings.Replace(valid, "        protocol_version: v1\n", "", 1)},
+		{name: "numeric protocol", manifest: strings.Replace(valid, "protocol_version: v1", "protocol_version: 1", 1)},
+		{name: "missing privacy", manifest: strings.Replace(valid, "        allowed_privacy_classes: [DEVICE_LOCAL]\n", "", 1)},
+		{name: "empty privacy", manifest: strings.Replace(valid, "[DEVICE_LOCAL]", "[]", 1)},
+		{name: "unknown privacy", manifest: strings.Replace(valid, "DEVICE_LOCAL", "UNKNOWN", 1)},
+		{name: "duplicate privacy", manifest: strings.Replace(valid, "[DEVICE_LOCAL]", "[DEVICE_LOCAL, DEVICE_LOCAL]", 1)},
+		{name: "missing latency", manifest: strings.Replace(valid, "        maximum_latency: 250ms\n", "", 1)},
+		{name: "numeric latency", manifest: strings.Replace(valid, "maximum_latency: 250ms", "maximum_latency: 250", 1)},
+		{name: "zero latency", manifest: strings.Replace(valid, "250ms", "0s", 1)},
+		{name: "invalid latency", manifest: strings.Replace(valid, "250ms", "soon", 1)},
+		{name: "missing cancellation", manifest: strings.Replace(valid, "        allowed_cancellation_semantics: [COOPERATIVE]\n", "", 1)},
+		{name: "empty cancellation", manifest: strings.Replace(valid, "[COOPERATIVE]", "[]", 1)},
+		{name: "unknown cancellation", manifest: strings.Replace(valid, "COOPERATIVE", "UNKNOWN", 1)},
+		{name: "duplicate cancellation", manifest: strings.Replace(valid, "[COOPERATIVE]", "[COOPERATIVE, COOPERATIVE]", 1)},
+		{name: "missing devices", manifest: strings.Replace(valid, "        allowed_device_classes: [CAMERA]\n", "", 1)},
+		{name: "unknown device", manifest: strings.Replace(valid, "CAMERA", "UNKNOWN", 1)},
+		{name: "duplicate device", manifest: strings.Replace(valid, "[CAMERA]", "[CAMERA, CAMERA]", 1)},
 		{name: "unknown fallback", manifest: optionalManifest("VOICE_ACTIVITY", "vad", "UNKNOWN")},
-		{name: "boolean fallback", manifest: optionalManifest("VOICE_ACTIVITY", "vad", "true")},
 		{name: "mismatched fallback", manifest: optionalManifest("SPEECH_SYNTHESIS", "tts", "AUDIO_ONLY")},
-		{name: "empty required provider", manifest: strings.Replace(valid, "provider_id: camera", "provider_id: ''", 1)},
-		{name: "numeric required provider", manifest: strings.Replace(valid, "provider_id: camera", "provider_id: 42", 1)},
-		{name: "empty optional provider", manifest: optionalManifest("VOICE_ACTIVITY", "", "NO_VOICE_REPLY")},
-		{name: "duplicate required", manifest: strings.Replace(valid, "    - capability: PERSON_PRESENCE\n", "    - capability: PERSON_PRESENCE\n      provider_id: camera\n    - capability: PERSON_PRESENCE\n", 1)},
-		{name: "duplicate optional", manifest: optionalManifest("VOICE_ACTIVITY", "vad", "NO_VOICE_REPLY") + "    - capability: VOICE_ACTIVITY\n      provider_id: vad\n      fallback: NO_VOICE_REPLY\n"},
-		{name: "required optional overlap", manifest: valid + "  optional:\n    - capability: PERSON_PRESENCE\n      provider_id: camera\n      fallback: ANONYMOUS_SUBJECT\n"},
 	}
 
 	for _, test := range tests {
@@ -189,57 +173,34 @@ scenario:
 	}
 }
 
-func TestLoadCanonicalizesOrderAndHash(t *testing.T) {
-	first := mustLoad(t, `
-schema_version: v1
-scenario:
-  id: welcome
-  version: v3
-  required:
-    - capability: VOICE_ACTIVITY
-      provider_id: vad
-    - capability: PERSON_PRESENCE
-      provider_id: camera
-  optional:
-    - capability: SPEECH_SYNTHESIS
-      provider_id: tts
-      fallback: VISUAL_ONLY
-    - capability: FACE_IDENTIFICATION
-      provider_id: face
-      fallback: ANONYMOUS_SUBJECT
-`)
-	second := mustLoad(t, `
-schema_version: v1
-scenario:
-  id: welcome
-  version: v3
-  required:
-    - capability: PERSON_PRESENCE
-      provider_id: camera
-    - capability: VOICE_ACTIVITY
-      provider_id: vad
-  optional:
-    - capability: FACE_IDENTIFICATION
-      provider_id: face
-      fallback: ANONYMOUS_SUBJECT
-    - capability: SPEECH_SYNTHESIS
-      provider_id: tts
-      fallback: VISUAL_ONLY
-`)
-	if !reflect.DeepEqual(first, second) {
-		t.Fatalf("equivalent manifests differ: first %#v, second %#v", first, second)
+func TestLoadCanonicalizesSelectionAndCompatibilityOrder(t *testing.T) {
+	first := "schema_version: v2\nscenario:\n  id: welcome\n  version: v3\n  minimum_identity_assurance: ANONYMOUS\n  required:\n" +
+		requiredItem("VOICE_ACTIVITY", "vad", orderedCompatibilityYAML) +
+		requiredItem("PERSON_PRESENCE", "camera", reversedCompatibilityYAML) +
+		"  optional:\n" + optionalItem("FACE_IDENTIFICATION", "face", "ANONYMOUS_SUBJECT", orderedCompatibilityYAML)
+	second := "schema_version: v2\nscenario:\n  id: welcome\n  version: v3\n  minimum_identity_assurance: ANONYMOUS\n  required:\n" +
+		requiredItem("PERSON_PRESENCE", "camera", orderedCompatibilityYAML) +
+		requiredItem("VOICE_ACTIVITY", "vad", reversedCompatibilityYAML) +
+		"  optional:\n" + optionalItem("FACE_IDENTIFICATION", "face", "ANONYMOUS_SUBJECT", reversedCompatibilityYAML)
+
+	loadedFirst := mustLoad(t, first)
+	loadedSecond := mustLoad(t, second)
+	if !reflect.DeepEqual(loadedFirst, loadedSecond) {
+		t.Fatalf("equivalent manifests differ: first %#v, second %#v", loadedFirst, loadedSecond)
 	}
-	assertSHA256Hex(t, first.Hash)
 }
 
-func TestLoadHashChangesWithSemanticValues(t *testing.T) {
-	baseline := mustLoad(t, canonicalManifest("welcome", "v1", "PERSON_PRESENCE", "camera"))
+func TestLoadHashChangesWithV2SemanticValues(t *testing.T) {
+	baselineManifest := requiredManifest("welcome", "v1", "ANONYMOUS", "PERSON_PRESENCE", "camera")
+	baseline := mustLoad(t, baselineManifest)
 	variants := []string{
-		canonicalManifest("other", "v1", "PERSON_PRESENCE", "camera"),
-		canonicalManifest("welcome", "v2", "PERSON_PRESENCE", "camera"),
-		canonicalManifest("welcome", "v1", "PERSON_PRESENCE", "other-camera"),
-		canonicalManifest("welcome", "v1", "DEVICE_STATE", "camera"),
-		canonicalManifest("welcome", "v1", "PERSON_PRESENCE", "camera") + "  optional:\n    - capability: VOICE_ACTIVITY\n      provider_id: vad\n      fallback: NO_VOICE_REPLY\n",
+		strings.Replace(baselineManifest, "id: welcome", "id: other", 1),
+		strings.Replace(baselineManifest, "version: v1", "version: v2", 1),
+		strings.Replace(baselineManifest, "ANONYMOUS", "RECOGNIZED", 1) + "  optional:\n" + optionalItem("FACE_IDENTIFICATION", "face", "ANONYMOUS_SUBJECT", defaultCompatibilityYAML),
+		strings.Replace(baselineManifest, "provider_id: 'camera'", "provider_id: 'other-camera'", 1),
+		strings.Replace(baselineManifest, "PERSON_PRESENCE", "DEVICE_STATE", 1),
+		strings.Replace(baselineManifest, "protocol_version: v1", "protocol_version: v2", 1),
+		strings.Replace(baselineManifest, "250ms", "300ms", 1),
 	}
 	for index, manifest := range variants {
 		loaded := mustLoad(t, manifest)
@@ -256,6 +217,59 @@ func TestLoadReaderFailureIsInvalidInput(t *testing.T) {
 	}
 }
 
+const defaultCompatibilityYAML = `      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL]
+        maximum_latency: 250ms
+        allowed_cancellation_semantics: [COOPERATIVE]
+        allowed_device_classes: [CAMERA]
+`
+
+const orderedCompatibilityYAML = `      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [DEVICE_LOCAL, REMOTE_PROCESSING]
+        maximum_latency: 1s
+        allowed_cancellation_semantics: [BOUNDED, COOPERATIVE]
+        allowed_device_classes: [CAMERA, MICROPHONE]
+`
+
+const reversedCompatibilityYAML = `      compatibility:
+        protocol_version: v1
+        allowed_privacy_classes: [REMOTE_PROCESSING, DEVICE_LOCAL]
+        maximum_latency: 1000ms
+        allowed_cancellation_semantics: [COOPERATIVE, BOUNDED]
+        allowed_device_classes: [MICROPHONE, CAMERA]
+`
+
+func requiredManifest(id, version, assurance, capability, providerID string) string {
+	return "schema_version: v2\nscenario:\n  id: " + id + "\n  version: " + version +
+		"\n  minimum_identity_assurance: " + assurance + "\n  required:\n" +
+		requiredItem(capability, providerID, defaultCompatibilityYAML)
+}
+
+func optionalManifest(capability, providerID, fallback string) string {
+	return "schema_version: v2\nscenario:\n  id: optional\n  version: v1\n  minimum_identity_assurance: ANONYMOUS\n  optional:\n" +
+		optionalItem(capability, providerID, fallback, defaultCompatibilityYAML)
+}
+
+func requiredItem(capability, providerID, compatibilityYAML string) string {
+	return "    - capability: " + capability + "\n      provider_id: '" + providerID + "'\n" + compatibilityYAML
+}
+
+func optionalItem(capability, providerID, fallback, compatibilityYAML string) string {
+	return "    - capability: " + capability + "\n      provider_id: '" + providerID + "'\n      fallback: " + fallback + "\n" + compatibilityYAML
+}
+
+func defaultWireCompatibility() readiness.ProviderCompatibility {
+	return readiness.ProviderCompatibility{
+		ProtocolVersion:              "v1",
+		AllowedPrivacyClasses:        []readiness.ProviderPrivacyClass{readiness.ProviderPrivacyDeviceLocal},
+		MaximumLatency:               250 * time.Millisecond,
+		AllowedCancellationSemantics: []readiness.ProviderCancellationSemantics{readiness.ProviderCancellationCooperative},
+		AllowedDeviceClasses:         []readiness.ProviderDeviceClass{readiness.ProviderDeviceCamera},
+	}
+}
+
 func mustLoad(t *testing.T, manifest string) LoadedScenario {
 	t.Helper()
 	loaded, err := Load(strings.NewReader(manifest))
@@ -263,16 +277,6 @@ func mustLoad(t *testing.T, manifest string) LoadedScenario {
 		t.Fatalf("Load() error = %v", err)
 	}
 	return loaded
-}
-
-func optionalManifest(capability, providerID, fallback string) string {
-	return "schema_version: v1\nscenario:\n  id: optional\n  version: v1\n  optional:\n" +
-		"    - capability: " + capability + "\n      provider_id: '" + providerID + "'\n      fallback: " + fallback + "\n"
-}
-
-func canonicalManifest(id, version, capability, providerID string) string {
-	return "schema_version: v1\nscenario:\n  id: " + id + "\n  version: " + version + "\n  required:\n" +
-		"    - capability: " + capability + "\n      provider_id: " + providerID + "\n"
 }
 
 func assertSHA256Hex(t *testing.T, hash string) {

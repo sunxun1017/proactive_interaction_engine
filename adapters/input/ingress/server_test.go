@@ -424,12 +424,22 @@ func canonicalObservation(at time.Time, sourceID string, sequence uint64, confid
 
 func validScenario() readiness.ScenarioRequirements {
 	return readiness.ScenarioRequirements{
-		ID: "ingress-test",
+		ID:                       "ingress-test",
+		MinimumIdentityAssurance: readiness.IdentityAssuranceAnonymous,
 		Required: []readiness.CapabilityRequirement{
-			{Kind: readiness.PersonPresence, ProviderID: "presence"},
-			{Kind: readiness.BusyState, ProviderID: "busy"},
-			{Kind: readiness.VoiceActivity, ProviderID: "vad"},
+			{Kind: readiness.PersonPresence, ProviderID: "presence", Compatibility: ingressTestCompatibility()},
+			{Kind: readiness.BusyState, ProviderID: "busy", Compatibility: ingressTestCompatibility()},
+			{Kind: readiness.VoiceActivity, ProviderID: "vad", Compatibility: ingressTestCompatibility()},
 		},
+	}
+}
+
+func ingressTestCompatibility() readiness.ProviderCompatibility {
+	return readiness.ProviderCompatibility{
+		ProtocolVersion:              "v1",
+		AllowedPrivacyClasses:        []readiness.ProviderPrivacyClass{readiness.ProviderPrivacyDeviceLocal},
+		MaximumLatency:               time.Second,
+		AllowedCancellationSemantics: []readiness.ProviderCancellationSemantics{readiness.ProviderCancellationCooperative},
 	}
 }
 
@@ -450,6 +460,11 @@ func providerSnapshot(providerID, instanceID string, health readiness.ProviderHe
 		Capabilities:          capabilities,
 		Health:                health,
 		LeaseExpiresAt:        expiresAt,
+		OperationalProfile: readiness.ProviderOperationalProfile{
+			PrivacyClass:          readiness.ProviderPrivacyDeviceLocal,
+			MaximumLatency:        100 * time.Millisecond,
+			CancellationSemantics: readiness.ProviderCancellationCooperative,
+		},
 	}
 }
 

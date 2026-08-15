@@ -21,7 +21,7 @@ func main() {
 		SubjectID:              "user-1",
 		ListenAddress:          "127.0.0.1:0",
 		PrivacyFile:            filepath.Join(configPath, "proactive-interaction-engine", "privacy.v1.json"),
-		ScenarioFile:           absoluteOrInput("configs/scenarios/anonymous-return-welcome.v1.yaml"),
+		ScenarioFile:           absoluteOrInput("configs/scenarios/anonymous-return-welcome.v2.yaml"),
 		WASMFile:               absoluteOrInput("dist/web/app.wasm"),
 		WASMExecFile:           absoluteOrInput("dist/web/wasm_exec.js"),
 		TTSBinary:              "/usr/bin/spd-say",

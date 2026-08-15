@@ -34,8 +34,9 @@ const (
 
 // CapabilityRequirement binds a required capability to one selected provider.
 type CapabilityRequirement struct {
-	Kind       CapabilityKind
-	ProviderID string
+	Kind          CapabilityKind
+	ProviderID    string
+	Compatibility ProviderCompatibility
 }
 
 // Fallback is a declared product-safe degradation for an optional capability.
@@ -52,17 +53,30 @@ const (
 // OptionalCapability binds an optional capability and its deterministic
 // fallback to one selected provider.
 type OptionalCapability struct {
-	Kind       CapabilityKind
-	ProviderID string
-	Fallback   Fallback
+	Kind          CapabilityKind
+	ProviderID    string
+	Fallback      Fallback
+	Compatibility ProviderCompatibility
 }
+
+// IdentityAssurance is a scenario's minimum identity trust level for
+// personalization and private-data access. It never authorizes safety-critical
+// actions and does not invalidate a declared anonymous fallback.
+type IdentityAssurance string
+
+const (
+	IdentityAssuranceAnonymous  IdentityAssurance = "ANONYMOUS"
+	IdentityAssuranceRecognized IdentityAssurance = "RECOGNIZED"
+	IdentityAssuranceVerified   IdentityAssurance = "VERIFIED"
+)
 
 // ScenarioRequirements is the capability selection validated before a
 // scenario is activated.
 type ScenarioRequirements struct {
-	ID       string
-	Required []CapabilityRequirement
-	Optional []OptionalCapability
+	ID                       string
+	MinimumIdentityAssurance IdentityAssurance
+	Required                 []CapabilityRequirement
+	Optional                 []OptionalCapability
 }
 
 // ProviderHealth is the provider's current application-level health state.
@@ -113,6 +127,17 @@ type ProviderOperationalProfile struct {
 	DeviceRequirements    []ProviderDeviceClass
 }
 
+// ProviderCompatibility is the exact operational envelope accepted by one
+// scenario selection. Lists are allowlists, not preferences, and provider
+// device requirements must be a subset of AllowedDeviceClasses.
+type ProviderCompatibility struct {
+	ProtocolVersion              string
+	AllowedPrivacyClasses        []ProviderPrivacyClass
+	MaximumLatency               time.Duration
+	AllowedCancellationSemantics []ProviderCancellationSemantics
+	AllowedDeviceClasses         []ProviderDeviceClass
+}
+
 // ProviderSnapshot is an immutable view of one deployed provider instance.
 type ProviderSnapshot struct {
 	ProviderID            string
@@ -147,8 +172,28 @@ type Issue struct {
 	Capability CapabilityKind
 	ProviderID string
 	Code       fault.Code
+	Reason     IssueReason
 	Fallback   Fallback
 }
+
+// IssueReason is the stable machine-readable readiness diagnostic within one
+// broad fault category.
+type IssueReason string
+
+const (
+	IssueProviderMissing          IssueReason = "PROVIDER_MISSING"
+	IssueCapabilityMissing        IssueReason = "CAPABILITY_MISSING"
+	IssueProviderUnhealthy        IssueReason = "PROVIDER_UNHEALTHY"
+	IssueLeaseExpired             IssueReason = "LEASE_EXPIRED"
+	IssueProtocolIncompatible     IssueReason = "PROTOCOL_INCOMPATIBLE"
+	IssuePrivacyIncompatible      IssueReason = "PRIVACY_INCOMPATIBLE"
+	IssueLatencyIncompatible      IssueReason = "LATENCY_INCOMPATIBLE"
+	IssueCancellationIncompatible IssueReason = "CANCELLATION_INCOMPATIBLE"
+	IssueDeviceIncompatible       IssueReason = "DEVICE_INCOMPATIBLE"
+	IssueBiometricDisabled        IssueReason = "BIOMETRIC_DISABLED"
+	IssueBiometricUnauthorized    IssueReason = "BIOMETRIC_UNAUTHORIZED"
+	IssueEnrollmentMissing        IssueReason = "ENROLLMENT_MISSING"
+)
 
 // Activation is the deterministic result of readiness evaluation.
 type Activation struct {

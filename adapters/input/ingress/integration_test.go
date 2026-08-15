@@ -139,7 +139,7 @@ func TestRegisteredWorkersCompleteAcceptedWelcomeThroughIngress(t *testing.T) {
 
 func loadIngressIntegrationScenario(t *testing.T) scenarioconfig.LoadedScenario {
 	t.Helper()
-	file, err := os.Open("../../../configs/scenarios/anonymous-return-welcome.v1.yaml")
+	file, err := os.Open("../../../configs/scenarios/anonymous-return-welcome.v2.yaml")
 	if err != nil {
 		t.Fatalf("open integration scenario: %v", err)
 	}

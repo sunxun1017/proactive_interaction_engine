@@ -13,13 +13,17 @@ func TestActivationViewRequiresHealthyMediaAndSuppliesLocalDisplay(t *testing.T)
 	clock := engineclock.NewFake(now)
 	providers := &snapshotReader{}
 	view, err := newActivationView(readiness.ScenarioRequirements{
-		ID: "desktop",
+		ID:                       "desktop",
+		MinimumIdentityAssurance: readiness.IdentityAssuranceAnonymous,
 		Required: []readiness.CapabilityRequirement{
-			{Kind: readiness.PersonPresence, ProviderID: "desktop-presence"},
-			{Kind: readiness.VoiceActivity, ProviderID: "desktop-vad"},
-			{Kind: readiness.DisplayText, ProviderID: "web-avatar"},
+			{Kind: readiness.PersonPresence, ProviderID: "desktop-presence", Compatibility: desktopCompatibility(3*time.Second, readiness.ProviderDeviceCamera)},
+			{Kind: readiness.VoiceActivity, ProviderID: "desktop-vad", Compatibility: desktopCompatibility(time.Second, readiness.ProviderDeviceMicrophone)},
+			{Kind: readiness.DisplayText, ProviderID: "web-avatar", Compatibility: desktopCompatibility(100*time.Millisecond, readiness.ProviderDeviceDisplay)},
 		},
-		Optional: []readiness.OptionalCapability{{Kind: readiness.SpeechSynthesis, ProviderID: "speech-dispatcher", Fallback: readiness.VisualOnly}},
+		Optional: []readiness.OptionalCapability{{
+			Kind: readiness.SpeechSynthesis, ProviderID: "speech-dispatcher", Fallback: readiness.VisualOnly,
+			Compatibility: desktopCompatibility(2*time.Second, readiness.ProviderDeviceAudioOutput),
+		}},
 	}, providers, clock, false)
 	if err != nil {
 		t.Fatalf("newActivationView() error = %v", err)
@@ -57,8 +61,30 @@ func (s *snapshotReader) Snapshots() []readiness.ProviderSnapshot {
 }
 
 func validRuntimeProvider(id string, capability readiness.CapabilityKind, expiresAt time.Time) readiness.ProviderSnapshot {
+	profile := readiness.ProviderOperationalProfile{
+		PrivacyClass: readiness.ProviderPrivacyDeviceLocal, MaximumLatency: time.Second,
+		CancellationSemantics: readiness.ProviderCancellationCooperative,
+	}
+	switch capability {
+	case readiness.PersonPresence:
+		profile.MaximumLatency = 3 * time.Second
+		profile.DeviceRequirements = []readiness.ProviderDeviceClass{readiness.ProviderDeviceCamera}
+	case readiness.VoiceActivity:
+		profile.DeviceRequirements = []readiness.ProviderDeviceClass{readiness.ProviderDeviceMicrophone}
+	}
 	return readiness.ProviderSnapshot{
 		ProviderID: id, InstanceID: id + "-1", ProtocolVersion: "v1", ImplementationVersion: "test",
 		Capabilities: []readiness.CapabilityKind{capability}, Health: readiness.Healthy, LeaseExpiresAt: expiresAt,
+		OperationalProfile: profile,
+	}
+}
+
+func desktopCompatibility(maximumLatency time.Duration, device readiness.ProviderDeviceClass) readiness.ProviderCompatibility {
+	return readiness.ProviderCompatibility{
+		ProtocolVersion:              "v1",
+		AllowedPrivacyClasses:        []readiness.ProviderPrivacyClass{readiness.ProviderPrivacyDeviceLocal},
+		MaximumLatency:               maximumLatency,
+		AllowedCancellationSemantics: []readiness.ProviderCancellationSemantics{readiness.ProviderCancellationCooperative},
+		AllowedDeviceClasses:         []readiness.ProviderDeviceClass{device},
 	}
 }
