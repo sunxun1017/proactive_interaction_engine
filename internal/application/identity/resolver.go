@@ -15,10 +15,7 @@ const resolveOp = "resolve identity evidence"
 // ResolveAt validates and resolves one immutable evidence set at the supplied
 // evaluation time. It performs no I/O and reads no ambient clock.
 func ResolveAt(policy Policy, evidence Evidence, now time.Time) (Resolution, error) {
-	if err := validatePolicy(policy); err != nil {
-		return Resolution{}, err
-	}
-	times, err := validateEvidence(evidence, now)
+	times, err := validateAt(policy, evidence, now)
 	if err != nil {
 		return Resolution{}, err
 	}
@@ -32,6 +29,24 @@ func ResolveAt(policy Policy, evidence Evidence, now time.Time) (Resolution, err
 		return resolveVerification(policy, evidence), nil
 	}
 	return resolveIdentification(policy, evidence), nil
+}
+
+// ValidateAt checks policy and candidate shape without resolving a profile.
+// Privacy authorization is a separate gate applied by ResolveAuthorizedAt.
+func ValidateAt(policy Policy, evidence Evidence, now time.Time) error {
+	_, err := validateAt(policy, evidence, now)
+	return err
+}
+
+func validateAt(policy Policy, evidence Evidence, now time.Time) ([]time.Time, error) {
+	if err := validatePolicy(policy); err != nil {
+		return nil, err
+	}
+	times, err := validateEvidence(evidence, now)
+	if err != nil {
+		return nil, err
+	}
+	return times, nil
 }
 
 func validatePolicy(policy Policy) error {

@@ -92,6 +92,9 @@ const (
 	ReasonEvidenceExpired             Reason = "EVIDENCE_EXPIRED"
 	ReasonEvidenceTimeSkew            Reason = "EVIDENCE_TIME_SKEW"
 	ReasonVerificationTargetMismatch  Reason = "VERIFICATION_TARGET_MISMATCH"
+	ReasonBiometricPermissionMissing  Reason = "BIOMETRIC_PERMISSION_MISSING"
+	ReasonEnrollmentUnavailable       Reason = "ENROLLMENT_UNAVAILABLE"
+	ReasonModelVersionMismatch        Reason = "MODEL_VERSION_MISMATCH"
 )
 
 // Resolution is the deterministic identity result for one policy version.
