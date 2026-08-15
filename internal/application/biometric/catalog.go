@@ -264,7 +264,7 @@ func (s *Service) ReadinessPolicy(global privacy.Snapshot, profileRef string) (r
 	if !validString(profileRef) {
 		return readiness.BiometricPolicySnapshot{}, invalidInput("profile reference is required")
 	}
-	globalEnabled, err := biometricPermissions(global)
+	globalEnabled, biometricRequested, err := biometricPermissions(global)
 	if err != nil {
 		return readiness.BiometricPolicySnapshot{}, err
 	}
@@ -272,7 +272,7 @@ func (s *Service) ReadinessPolicy(global privacy.Snapshot, profileRef string) (r
 	current := cloneSnapshot(s.current)
 	s.mu.RUnlock()
 
-	policy := readiness.BiometricPolicySnapshot{Enabled: len(globalEnabled) > 0}
+	policy := readiness.BiometricPolicySnapshot{Enabled: biometricRequested}
 	for _, capability := range biometricCapabilityOrder {
 		if _, enabled := globalEnabled[capability]; !enabled {
 			continue
@@ -411,32 +411,65 @@ var biometricCapabilityOrder = []readiness.CapabilityKind{
 	readiness.SpeakerVerification,
 }
 
-func biometricPermissions(snapshot privacy.Snapshot) (map[readiness.CapabilityKind]struct{}, error) {
+func biometricPermissions(snapshot privacy.Snapshot) (map[readiness.CapabilityKind]struct{}, bool, error) {
 	known := make(map[privacy.Permission]struct{}, len(privacy.AllPermissions()))
 	for _, permission := range privacy.AllPermissions() {
 		known[permission] = struct{}{}
 	}
 	seen := make(map[privacy.Permission]struct{}, len(snapshot.Grants))
-	enabled := make(map[readiness.CapabilityKind]struct{})
+	granted := make(map[privacy.Permission]struct{})
+	biometricRequested := false
 	for _, grant := range snapshot.Grants {
 		if _, ok := known[grant.Permission]; !ok {
-			return nil, invalidInput("unknown global permission %q", grant.Permission)
+			return nil, false, invalidInput("unknown global permission %q", grant.Permission)
 		}
 		if _, duplicate := seen[grant.Permission]; duplicate {
-			return nil, invalidInput("global permission %q is duplicated", grant.Permission)
+			return nil, false, invalidInput("global permission %q is duplicated", grant.Permission)
 		}
 		seen[grant.Permission] = struct{}{}
 		if !grant.Enabled {
 			continue
 		}
 		if grant.UpdatedAt.IsZero() {
-			return nil, invalidInput("enabled global permission %q has no update time", grant.Permission)
+			return nil, false, invalidInput("enabled global permission %q has no update time", grant.Permission)
 		}
-		if capability, ok := permissionCapability(grant.Permission); ok {
-			enabled[capability] = struct{}{}
+		granted[grant.Permission] = struct{}{}
+		if _, ok := permissionCapability(grant.Permission); ok {
+			biometricRequested = true
 		}
 	}
-	return enabled, nil
+
+	effective := make(map[readiness.CapabilityKind]struct{})
+	for _, capability := range biometricCapabilityOrder {
+		if biometricPrerequisitesGranted(capability, granted) {
+			effective[capability] = struct{}{}
+		}
+	}
+	return effective, biometricRequested, nil
+}
+
+func biometricPrerequisitesGranted(capability readiness.CapabilityKind, granted map[privacy.Permission]struct{}) bool {
+	var required []privacy.Permission
+	switch capability {
+	case readiness.FaceDetection:
+		required = []privacy.Permission{privacy.CameraCapture, privacy.FaceDetection}
+	case readiness.FaceIdentification:
+		required = []privacy.Permission{privacy.CameraCapture, privacy.FaceDetection, privacy.FaceIdentification}
+	case readiness.FaceLiveness:
+		required = []privacy.Permission{privacy.CameraCapture, privacy.FaceDetection, privacy.FaceLiveness}
+	case readiness.SpeakerIdentification:
+		required = []privacy.Permission{privacy.MicrophoneCapture, privacy.SpeakerIdentification}
+	case readiness.SpeakerVerification:
+		required = []privacy.Permission{privacy.MicrophoneCapture, privacy.SpeakerVerification}
+	default:
+		return false
+	}
+	for _, permission := range required {
+		if _, ok := granted[permission]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func permissionCapability(permission privacy.Permission) (readiness.CapabilityKind, bool) {

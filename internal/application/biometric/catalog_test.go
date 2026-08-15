@@ -18,6 +18,7 @@ import (
 func TestCatalogDefaultsClosedAndIntersectsGlobalPermission(t *testing.T) {
 	service := newTestService(t, &memoryRepository{})
 	policy, err := service.ReadinessPolicy(globalPermissions(
+		privacy.CameraCapture,
 		privacy.FaceDetection,
 		privacy.FaceIdentification,
 	), "profile-a")
@@ -32,6 +33,55 @@ func TestCatalogDefaultsClosedAndIntersectsGlobalPermission(t *testing.T) {
 	}
 	if current := service.Current(); current.Revision != 0 || len(current.Records) != 0 {
 		t.Fatalf("initial snapshot = %#v", current)
+	}
+}
+
+func TestCatalogReadinessRequiresCaptureAndDetectionPrerequisites(t *testing.T) {
+	service := newTestService(t, &memoryRepository{})
+	ctx := context.Background()
+	for _, capability := range []readiness.CapabilityKind{readiness.FaceIdentification, readiness.SpeakerIdentification} {
+		if _, err := service.GrantConsent(ctx, ConsentCommand{ProfileRef: "profile-a", Capability: capability}); err != nil {
+			t.Fatalf("GrantConsent(%s) error = %v", capability, err)
+		}
+		if _, err := service.Register(ctx, Registration{
+			ProfileRef: "profile-a", Capability: capability,
+			TemplateRef: "template-" + string(capability), ModelVersion: "model.v1",
+		}); err != nil {
+			t.Fatalf("Register(%s) error = %v", capability, err)
+		}
+	}
+
+	for _, test := range []struct {
+		name       string
+		enabled    []privacy.Permission
+		authorized []readiness.CapabilityKind
+		enrolled   []readiness.CapabilityKind
+	}{
+		{name: "face identity without capture", enabled: []privacy.Permission{privacy.FaceDetection, privacy.FaceIdentification}},
+		{name: "face identity without detection", enabled: []privacy.Permission{privacy.CameraCapture, privacy.FaceIdentification}},
+		{
+			name:       "complete face chain",
+			enabled:    []privacy.Permission{privacy.CameraCapture, privacy.FaceDetection, privacy.FaceIdentification},
+			authorized: []readiness.CapabilityKind{readiness.FaceDetection, readiness.FaceIdentification},
+			enrolled:   []readiness.CapabilityKind{readiness.FaceIdentification},
+		},
+		{name: "speaker identity without capture", enabled: []privacy.Permission{privacy.SpeakerIdentification}},
+		{
+			name:       "complete speaker chain",
+			enabled:    []privacy.Permission{privacy.MicrophoneCapture, privacy.SpeakerIdentification},
+			authorized: []readiness.CapabilityKind{readiness.SpeakerIdentification},
+			enrolled:   []readiness.CapabilityKind{readiness.SpeakerIdentification},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy, err := service.ReadinessPolicy(globalPermissions(test.enabled...), "profile-a")
+			if err != nil {
+				t.Fatalf("ReadinessPolicy() error = %v", err)
+			}
+			if !reflect.DeepEqual(policy.Authorized, test.authorized) || !reflect.DeepEqual(policy.Enrolled, test.enrolled) {
+				t.Fatalf("policy = %#v, want authorized=%#v enrolled=%#v", policy, test.authorized, test.enrolled)
+			}
+		})
 	}
 }
 
@@ -56,6 +106,7 @@ func TestCatalogKeepsProfileCapabilitiesIndependentAndSnapshotsImmutable(t *test
 	}
 
 	policy, err := service.ReadinessPolicy(globalPermissions(
+		privacy.MicrophoneCapture,
 		privacy.FaceIdentification,
 		privacy.SpeakerIdentification,
 	), "profile-a")
