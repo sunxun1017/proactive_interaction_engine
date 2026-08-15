@@ -32,6 +32,7 @@ import (
 	"proactive-interaction-engine/gen/go/proactive/platform/v1/platformv1connect"
 	application "proactive-interaction-engine/internal/application/engine"
 	"proactive-interaction-engine/internal/application/privacy"
+	"proactive-interaction-engine/internal/application/readiness"
 	"proactive-interaction-engine/internal/domain/fault"
 	engineclock "proactive-interaction-engine/internal/runtime/clock"
 	"proactive-interaction-engine/internal/runtime/lifecycle"
@@ -356,19 +357,21 @@ func (a *App) run(ctx context.Context) error {
 	return firstErr
 }
 
-func mediaWorkerSpecs(config Config, address string) []supervisor.Spec {
+func mediaWorkerSpecs(config Config, address string) []supervisor.ProcessSpec {
 	pythonPath := filepath.Dir(config.MediaPython)
 	pythonEnv := "PYTHONPATH=" + filepath.Join(config.MediaRoot, "gen", "python") + string(os.PathListSeparator) + config.MediaRoot
-	return []supervisor.Spec{
+	return []supervisor.ProcessSpec{
 		{
-			ProviderID: "desktop-presence", Permission: privacy.CameraCapture, Command: config.MediaPython,
+			ProcessID: "desktop-camera-process", BasePermission: privacy.CameraCapture, Command: config.MediaPython,
 			WorkingDir: config.MediaRoot, Env: []string{pythonEnv, "PATH=" + pythonPath + string(os.PathListSeparator) + os.Getenv("PATH")},
-			Args: []string{"-m", "workers.camera.presence", "--grpc-address", address, "--device", config.CameraDevice, "--subject-id", config.SubjectID},
+			Args:      []string{"-m", "workers.camera.presence", "--grpc-address", address, "--device", config.CameraDevice, "--subject-id", config.SubjectID},
+			Providers: []supervisor.LogicalProviderSpec{{ProviderID: "desktop-presence", Capability: readiness.PersonPresence}},
 		},
 		{
-			ProviderID: "desktop-vad", Permission: privacy.MicrophoneCapture, Command: config.MediaPython,
+			ProcessID: "desktop-microphone-process", BasePermission: privacy.MicrophoneCapture, Command: config.MediaPython,
 			WorkingDir: config.MediaRoot, Env: []string{pythonEnv, "PATH=" + pythonPath + string(os.PathListSeparator) + os.Getenv("PATH")},
-			Args: []string{"-m", "workers.microphone.activity", "--grpc-address", address, "--parec", config.ParecBinary, "--subject-id", config.SubjectID},
+			Args:      []string{"-m", "workers.microphone.activity", "--grpc-address", address, "--parec", config.ParecBinary, "--subject-id", config.SubjectID},
+			Providers: []supervisor.LogicalProviderSpec{{ProviderID: "desktop-vad", Capability: readiness.VoiceActivity}},
 		},
 	}
 }

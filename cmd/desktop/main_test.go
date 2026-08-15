@@ -7,14 +7,17 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"proactive-interaction-engine/adapters/worker/supervisor"
 	platformv1 "proactive-interaction-engine/gen/go/proactive/platform/v1"
 	"proactive-interaction-engine/gen/go/proactive/platform/v1/platformv1connect"
 	"proactive-interaction-engine/internal/application/identity"
+	"proactive-interaction-engine/internal/application/readiness"
 	"proactive-interaction-engine/internal/domain/fault"
 )
 
@@ -221,8 +224,10 @@ func TestMediaWorkerSpecsAreExplicitAndUsePrivateUDS(t *testing.T) {
 			t.Fatalf("worker args = %q, want only private UDS transport", joined)
 		}
 	}
-	if specs[0].ProviderID != "desktop-presence" || specs[1].ProviderID != "desktop-vad" {
-		t.Fatalf("provider order = %#v", specs)
+	if specs[0].ProcessID != "desktop-camera-process" || specs[1].ProcessID != "desktop-microphone-process" ||
+		!reflect.DeepEqual(specs[0].Providers, []supervisor.LogicalProviderSpec{{ProviderID: "desktop-presence", Capability: readiness.PersonPresence}}) ||
+		!reflect.DeepEqual(specs[1].Providers, []supervisor.LogicalProviderSpec{{ProviderID: "desktop-vad", Capability: readiness.VoiceActivity}}) {
+		t.Fatalf("process/provider order = %#v", specs)
 	}
 }
 
