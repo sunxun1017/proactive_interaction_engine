@@ -22,6 +22,8 @@ Use a typed capability catalog and versioned scenario manifests.
 - Route biometric evidence through an Identity Resolver before emitting a canonical subject identity observation. Ambiguity or conflicting modalities resolve to anonymous.
 - Treat identification and verification as distinct capabilities. Do not use first-phase biometric results as security authentication.
 - Default biometric capabilities to disabled. Require per-subject enrollment and consent; process locally, encrypt templates, discard raw enrollment media after extraction, and support deletion.
+- Use one supervised camera owner and one supervised microphone owner, while registering the seven vision/audio capabilities as independent single-capability logical Providers and leases. A shared process is not permission or health equivalence.
+- Deliver application-issued biometric windows and challenges through fixed capacity-one latest-state streams on the existing private UDS. Do not replay work after reconnect or turn this boundary into a generic event bus. Verification work carries bounded encoded material without exposing its expected profile or template reference.
 - Use explicit deployment-time provider selection first. Defer arbitrary code plugins and hot unload until a proven operational need exists.
 
 ## Consequences
@@ -42,15 +44,17 @@ Implemented:
 - Per-profile consent and enrollment metadata, encrypted catalog and template vault adapters, replacement, revocation, and retryable physical deletion.
 - A deterministic Identity Resolver, bounded identification windows, application-owned speaker verification challenges, and synchronous desktop runtime and live-readiness seams.
 - Five separate face detection, face identification, face liveness, speaker identification, and speaker verification evidence RPCs with lease, exact-Provider, permission, TTL, sequence, and deduplication gates.
+- Two fixed private identity worker-control streams on the existing UDS. They retain only capacity-one latest desired state, do not replay after reconnect, revalidate only task-relevant logical Providers, and structurally omit profile/template references from verification work.
 - Fake and in-memory integration coverage across Registry, identity ingress, resolver/runtime, and encrypted deletion boundaries.
 - A production Ubuntu Secret Service master-key adapter, one pinned CUDA Conda environment, a strict offline model artifact manifest, CUDA-only YuNet/SFace/anti-spoof/ERes2Net model adapters, and fixed face/speaker template codecs. Real target-GPU conformance verifies artifact integrity and execution placement but does not define product thresholds.
+- Strict opt-in desktop composition for Secret Service, crash-safe catalog/vault recovery, identity runtime, evidence ingress, and live readiness. The checked-in production configuration remains identity-disabled.
 
 Not implemented:
 
-- Supervised face, speaker, or liveness Provider processes, enrollment capture and lifecycle orchestration, or enrollment-media disposal.
+- Supervised face, speaker, or liveness Provider execution loops, enrollment capture orchestration, or enrollment-media disposal.
 - Deployment calibration artifacts and end-to-end Provider latency declarations bound to the selected model and preprocessing versions.
-- Desktop Secret Service/catalog/vault composition, or Camera/Microphone sharing between anonymous C2 and biometric workers.
-- Enrollment and deletion UI, per-capability biometric runtime/enrollment status, or production desktop identity activation. `cmd/desktop.Build` still runs with identity disabled.
+- Camera/Microphone device-owner stacks that share bounded media internally while preserving seven independent logical Provider leases.
+- Enrollment and deletion UI, per-capability biometric runtime/enrollment status, or a checked-in production identity activation configuration.
 - Canonical subject identity observations, private-memory gates, personalized welcome, or shared-household composition; those belong to the separately reviewed C4 slice.
 
 ## Rejected Alternatives

@@ -77,6 +77,8 @@ Observation
 
 生物 evidence 不通过 `ObservationIngressService`。独立的 `IdentityEvidenceIngressService` 分别接收 face detection、face identification、face liveness、speaker identification 和 speaker verification 五类强类型 RPC；每类 evidence 使用独立 capability、Provider 和 lease 边界，并校验 instance、健康、半开 expiry、场景 exact Provider、operational compatibility、权限、TTL、source sequence 与去重。RPC receipt 只表示 evidence 是否进入 application-owned window，不表示档案已注册、匹配或完成身份解析。
 
+应用向生物 Worker 下发的窗口/挑战也不使用通用消息总线。`IdentityWorkerControlService` 在现有私有 UDS 上为视觉和音频各提供一条 server stream，只保留容量为 1 的最新期望状态，重连从 idle 开始且不 replay。视觉和音频各由唯一设备 owner 进程持有物理 camera/microphone，但 Presence、FaceDetection、FaceIdentification、FaceLiveness、VAD、SpeakerIdentification、SpeakerVerification 仍是七个独立单能力 Provider/lease。发布 active work 时只重验 base capture 与本次任务实际使用的能力，避免无关 optional Provider 故障连带阻塞。identification 的有界 encoded template 只存在于该 adapter/transport 边界；verification work 在结构上不携带 expected profile 或 template reference。
+
 ## Runtime and Degradation
 
 控制/拒绝为 P0，取消和动作状态为 P1，语义事件与决策为 P2，日志、记忆和遥测为 P3。所有队列有界；连续状态只保留最新值；控制命令和动作终态不可丢弃。
@@ -120,9 +122,9 @@ Application Engine 持有当前专用 continuation，并只向 Runner 暴露不�
 
 Stage B 无硬件产品雏形已可通过 Fake Embodiment、Fake Clock、内存审计和五条模拟场景执行。Stage C1 的强类型能力契约、Provider Registry、场景 manifest 与校验已完成；Stage C2 的基础 PC 体验也已完成：loopback Web Avatar/TTS/控制面板，私有 UDS 上的 Camera/VAD Provider，以及 Registry、Ingress、Runner 和 Engine 的纵向链路。
 
-Stage C3 当前达到 model-enabled foundation checkpoint，而不是阶段完成。已实现严格的 scenario schema v2、Provider operational profile 校验、加密 biometric catalog/template vault 与可重试删除、Secret Service production master-key adapter、确定性 Identity Resolver、identification/verification coordinators、五个 identity evidence RPC、desktop 同步 runtime/动态 readiness seam，以及 pinned CUDA-only face/liveness/speaker 模型与固定模板 codec；fake/in-memory 测试覆盖应用边界，真实 artifact conformance 已验证目标 NVIDIA GPU 执行。scenario schema v2 不是 Provider protocol 或 Protobuf package v2，当前跨进程契约仍位于 `proactive.platform.v1`。
+Stage C3 当前达到 model-enabled foundation checkpoint，而不是阶段完成。已实现严格的 scenario schema v2、Provider operational profile 校验、crash-safe 加密 biometric catalog/template vault、Secret Service production master-key adapter、确定性 Identity Resolver、identification/verification coordinators、五个 identity evidence RPC、opt-in desktop composition、动态 readiness seam、两条私有 identity worker-control stream，以及 pinned CUDA-only face/liveness/speaker 模型与固定模板 codec；fake/in-memory 测试覆盖应用边界，真实 artifact conformance 已验证目标 NVIDIA GPU 执行。scenario schema v2 不是 Provider protocol 或 Protobuf package v2，当前跨进程契约仍位于 `proactive.platform.v1`。
 
-尚未实现受 supervisor 管理的 face/speaker/liveness Provider 进程、注册媒体采集与生命周期编排、Camera/Microphone 设备共享、校准阈值、UI enrollment/status 和 production desktop identity composition。`cmd/desktop.Build` 仍以 identity disabled 运行，不构造 catalog/vault/runtime，也不注册 identity evidence 服务。canonical subject identity Observation、私有记忆门控、个性化欢迎和共享家庭组合属于后续 C4。
+尚未实现受 supervisor 管理的真实 face/speaker/liveness Provider 执行循环、注册媒体采集、校准阈值和 UI enrollment/status。`cmd/desktop.Build` 已支持严格 opt-in identity composition，但检入配置仍保持 disabled，未显式配置和校准时不会加载密钥、模板或注册 identity RPC。canonical subject identity Observation、私有记忆门控、个性化欢迎和共享家庭组合属于后续 C4。
 
 Stage C 已扩展为能力平台。Provider 声明稳定 ID、协议/实现版本、强类型能力、健康、隐私等级、延迟和取消语义；版本化场景声明 required、optional、选定 Provider、最低身份保证和确定性 fallback。首版采用显式部署配置，不实现任意动态插件或运行中热卸载。
 

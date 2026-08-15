@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package proactive.platform.v1;
+
+import "google/protobuf/timestamp.proto";
+import "proactive/platform/v1/capability.proto";
+
+option go_package = "proactive-interaction-engine/gen/go/proactive/platform/v1;platformv1";
+
+// IdentityWorkerControlService is a local, private adapter contract on the
+// platform UDS. It carries only latest desired identity work from the trusted
+// adapter to the single camera or microphone owner. It is not a public API,
+// queue, replay log, or biometric catalog boundary.
+service IdentityWorkerControlService {
+  rpc WatchVision(WatchVisionRequest) returns (stream WatchVisionResponse);
+  rpc WatchAudio(WatchAudioRequest) returns (stream WatchAudioResponse);
+}
+
+// IdentityWorkerLeaseBinding binds one independently registered, single-
+// capability Provider lease to the shared device-owner process instance.
+message IdentityWorkerLeaseBinding {
+  ServiceCapabilityKind capability = 1;
+  string provider_lease_id = 2;
+}
+
+message WatchVisionRequest {
+  string source_instance_id = 1;
+  repeated IdentityWorkerLeaseBinding lease_bindings = 2;
+}
+
+message WatchAudioRequest {
+  string source_instance_id = 1;
+  repeated IdentityWorkerLeaseBinding lease_bindings = 2;
+}
+
+message IdentityWorkerIdle {}
+
+// IdentityWorkerIdentificationTemplate is adapter-private materialized work.
+// encoded_template is bounded by the server and must never enter application
+// or domain state.
+message IdentityWorkerIdentificationTemplate {
+  string profile_ref = 1;
+  bytes encoded_template = 2;
+}
+
+message VisionFaceDetectionTask {}
+
+message VisionFaceIdentificationTask {
+  repeated IdentityWorkerIdentificationTemplate templates = 1;
+}
+
+message VisionFaceLivenessTask {}
+
+message VisionActiveWork {
+  string evidence_window_id = 1;
+  google.protobuf.Timestamp opened_at = 2;
+  // The active interval is [opened_at, deadline).
+  google.protobuf.Timestamp deadline = 3;
+  // Message presence distinguishes an absent task from an explicit task.
+  VisionFaceDetectionTask detection = 4;
+  VisionFaceIdentificationTask identification = 5;
+  VisionFaceLivenessTask liveness = 6;
+}
+
+message WatchVisionResponse {
+  // Revision is positive and strictly increases for this watcher.
+  uint64 revision = 1;
+  oneof state {
+    IdentityWorkerIdle idle = 2;
+    VisionActiveWork active = 3;
+  }
+}
+
+message AudioSpeakerIdentificationWork {
+  string evidence_window_id = 1;
+  google.protobuf.Timestamp opened_at = 2;
+  // The active interval is [opened_at, deadline).
+  google.protobuf.Timestamp deadline = 3;
+  repeated IdentityWorkerIdentificationTemplate templates = 4;
+}
+
+// AudioSpeakerVerificationWork intentionally contains neither a profile
+// reference nor a template reference. The application-owned challenge binds
+// the expected identity; the worker receives only bounded encoded material.
+message AudioSpeakerVerificationWork {
+  string verification_challenge_id = 1;
+  string evidence_window_id = 2;
+  google.protobuf.Timestamp opened_at = 3;
+  // The active interval is [opened_at, deadline).
+  google.protobuf.Timestamp deadline = 4;
+  bytes expected_encoded_template = 5;
+}
+
+message AudioActiveWork {
+  oneof task {
+    AudioSpeakerIdentificationWork identification = 1;
+    AudioSpeakerVerificationWork verification = 2;
+  }
+}
+
+message WatchAudioResponse {
+  // Revision is positive and strictly increases for this watcher.
+  uint64 revision = 1;
+  oneof state {
+    IdentityWorkerIdle idle = 2;
+    AudioActiveWork active = 3;
+  }
+}
