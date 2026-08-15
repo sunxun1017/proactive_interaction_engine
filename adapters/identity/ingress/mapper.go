@@ -31,93 +31,116 @@ type evidenceMetadata struct {
 	traceID          string
 }
 
-type identificationFragment struct {
-	metadata             evidenceMetadata
-	capability           readiness.CapabilityKind
-	requiredCapabilities []readiness.CapabilityKind
-	evidence             identity.Evidence
+type faceDetectionFragment struct {
+	metadata      evidenceMetadata
+	capability    readiness.CapabilityKind
+	facesObserved uint32
 }
 
-type verificationFragment struct {
-	metadata             evidenceMetadata
-	capability           readiness.CapabilityKind
-	requiredCapabilities []readiness.CapabilityKind
-	challengeID          string
-	candidate            identity.SpeakerVerificationCandidate
+type faceIdentificationFragment struct {
+	metadata   evidenceMetadata
+	capability readiness.CapabilityKind
+	candidates []identity.FaceIdentificationCandidate
 }
 
-func mapFaceIdentification(request *platformv1.PublishFaceIdentificationEvidenceRequest, now time.Time) (identificationFragment, error) {
+type faceLivenessFragment struct {
+	metadata   evidenceMetadata
+	capability readiness.CapabilityKind
+	state      identity.Liveness
+}
+
+type speakerIdentificationFragment struct {
+	metadata   evidenceMetadata
+	capability readiness.CapabilityKind
+	candidates []identity.SpeakerIdentificationCandidate
+}
+
+type speakerVerificationFragment struct {
+	metadata    evidenceMetadata
+	capability  readiness.CapabilityKind
+	challengeID string
+	candidate   identity.SpeakerVerificationCandidate
+}
+
+func mapFaceDetection(request *platformv1.PublishFaceDetectionEvidenceRequest, now time.Time) (faceDetectionFragment, error) {
 	if request == nil {
-		return identificationFragment{}, errors.New("face identification request is required")
+		return faceDetectionFragment{}, errors.New("face detection request is required")
 	}
 	metadata, err := mapEvidenceMetadata(request.GetMetadata(), now)
 	if err != nil {
-		return identificationFragment{}, err
+		return faceDetectionFragment{}, err
 	}
-	if request.GetFacesObserved() == 0 {
-		return identificationFragment{}, errors.New("faces observed must be positive")
+	return faceDetectionFragment{
+		metadata: metadata, capability: readiness.FaceDetection, facesObserved: request.GetFacesObserved(),
+	}, nil
+}
+
+func mapFaceIdentification(request *platformv1.PublishFaceIdentificationEvidenceRequest, now time.Time) (faceIdentificationFragment, error) {
+	if request == nil {
+		return faceIdentificationFragment{}, errors.New("face identification request is required")
+	}
+	metadata, err := mapEvidenceMetadata(request.GetMetadata(), now)
+	if err != nil {
+		return faceIdentificationFragment{}, err
 	}
 	if err := validateCandidateCount(len(request.GetCandidates())); err != nil {
-		return identificationFragment{}, err
+		return faceIdentificationFragment{}, err
 	}
 
 	candidates := make([]identity.FaceIdentificationCandidate, 0, len(request.GetCandidates()))
 	seen := make(map[string]struct{}, len(request.GetCandidates()))
-	requiresLiveness := false
 	modelVersion := ""
 	for _, wire := range request.GetCandidates() {
 		if wire == nil {
-			return identificationFragment{}, errors.New("face candidate is required")
+			return faceIdentificationFragment{}, errors.New("face candidate is required")
 		}
 		if err := validateCandidate(wire.GetCandidateId(), wire.GetProfileRef(), wire.GetModelVersion(), wire.GetScore(), seen); err != nil {
-			return identificationFragment{}, err
+			return faceIdentificationFragment{}, err
 		}
 		if modelVersion != "" && wire.GetModelVersion() != modelVersion {
-			return identificationFragment{}, errors.New("face candidates use mixed model versions")
+			return faceIdentificationFragment{}, errors.New("face candidates use mixed model versions")
 		}
 		modelVersion = wire.GetModelVersion()
-		liveness, ok := mapLiveness(wire.GetLiveness())
-		if !ok {
-			return identificationFragment{}, errors.New("face liveness is invalid")
-		}
-		if liveness != identity.LivenessUnknown {
-			requiresLiveness = true
-		}
 		candidates = append(candidates, identity.FaceIdentificationCandidate{
 			ID:           wire.GetCandidateId(),
 			ProfileRef:   wire.GetProfileRef(),
 			Score:        wire.GetScore(),
 			ModelVersion: wire.GetModelVersion(),
-			OccurredAt:   metadata.occurredAt,
-			Liveness:     liveness,
 		})
 	}
 
-	required := []readiness.CapabilityKind{readiness.FaceIdentification, readiness.FaceDetection}
-	if requiresLiveness {
-		required = append(required, readiness.FaceLiveness)
-	}
-	return identificationFragment{
-		metadata:             metadata,
-		capability:           readiness.FaceIdentification,
-		requiredCapabilities: required,
-		evidence: identity.Evidence{
-			FacesObserved:       request.GetFacesObserved(),
-			FaceIdentifications: candidates,
-		},
+	return faceIdentificationFragment{
+		metadata: metadata, capability: readiness.FaceIdentification, candidates: candidates,
 	}, nil
 }
 
-func mapSpeakerIdentification(request *platformv1.PublishSpeakerIdentificationEvidenceRequest, now time.Time) (identificationFragment, error) {
+func mapFaceLiveness(request *platformv1.PublishFaceLivenessEvidenceRequest, now time.Time) (faceLivenessFragment, error) {
 	if request == nil {
-		return identificationFragment{}, errors.New("speaker identification request is required")
+		return faceLivenessFragment{}, errors.New("face liveness request is required")
 	}
 	metadata, err := mapEvidenceMetadata(request.GetMetadata(), now)
 	if err != nil {
-		return identificationFragment{}, err
+		return faceLivenessFragment{}, err
+	}
+	state, ok := mapLiveness(request.GetState())
+	if !ok {
+		return faceLivenessFragment{}, errors.New("face liveness state is invalid")
+	}
+	return faceLivenessFragment{
+		metadata: metadata, capability: readiness.FaceLiveness, state: state,
+	}, nil
+}
+
+func mapSpeakerIdentification(request *platformv1.PublishSpeakerIdentificationEvidenceRequest, now time.Time) (speakerIdentificationFragment, error) {
+	if request == nil {
+		return speakerIdentificationFragment{}, errors.New("speaker identification request is required")
+	}
+	metadata, err := mapEvidenceMetadata(request.GetMetadata(), now)
+	if err != nil {
+		return speakerIdentificationFragment{}, err
 	}
 	if err := validateCandidateCount(len(request.GetCandidates())); err != nil {
-		return identificationFragment{}, err
+		return speakerIdentificationFragment{}, err
 	}
 
 	candidates := make([]identity.SpeakerIdentificationCandidate, 0, len(request.GetCandidates()))
@@ -125,13 +148,13 @@ func mapSpeakerIdentification(request *platformv1.PublishSpeakerIdentificationEv
 	modelVersion := ""
 	for _, wire := range request.GetCandidates() {
 		if wire == nil {
-			return identificationFragment{}, errors.New("speaker candidate is required")
+			return speakerIdentificationFragment{}, errors.New("speaker candidate is required")
 		}
 		if err := validateCandidate(wire.GetCandidateId(), wire.GetProfileRef(), wire.GetModelVersion(), wire.GetScore(), seen); err != nil {
-			return identificationFragment{}, err
+			return speakerIdentificationFragment{}, err
 		}
 		if modelVersion != "" && wire.GetModelVersion() != modelVersion {
-			return identificationFragment{}, errors.New("speaker candidates use mixed model versions")
+			return speakerIdentificationFragment{}, errors.New("speaker candidates use mixed model versions")
 		}
 		modelVersion = wire.GetModelVersion()
 		candidates = append(candidates, identity.SpeakerIdentificationCandidate{
@@ -139,43 +162,37 @@ func mapSpeakerIdentification(request *platformv1.PublishSpeakerIdentificationEv
 			ProfileRef:   wire.GetProfileRef(),
 			Score:        wire.GetScore(),
 			ModelVersion: wire.GetModelVersion(),
-			OccurredAt:   metadata.occurredAt,
 		})
 	}
 
-	return identificationFragment{
-		metadata:             metadata,
-		capability:           readiness.SpeakerIdentification,
-		requiredCapabilities: []readiness.CapabilityKind{readiness.SpeakerIdentification},
-		evidence:             identity.Evidence{SpeakerIdentifications: candidates},
+	return speakerIdentificationFragment{
+		metadata: metadata, capability: readiness.SpeakerIdentification, candidates: candidates,
 	}, nil
 }
 
-func mapSpeakerVerification(request *platformv1.PublishSpeakerVerificationEvidenceRequest, now time.Time) (verificationFragment, error) {
+func mapSpeakerVerification(request *platformv1.PublishSpeakerVerificationEvidenceRequest, now time.Time) (speakerVerificationFragment, error) {
 	if request == nil {
-		return verificationFragment{}, errors.New("speaker verification request is required")
+		return speakerVerificationFragment{}, errors.New("speaker verification request is required")
 	}
 	metadata, err := mapEvidenceMetadata(request.GetMetadata(), now)
 	if err != nil {
-		return verificationFragment{}, err
+		return speakerVerificationFragment{}, err
 	}
 	if !validIdentifier(request.GetVerificationChallengeId()) {
-		return verificationFragment{}, errors.New("verification challenge id is invalid")
+		return speakerVerificationFragment{}, errors.New("verification challenge id is invalid")
 	}
 	if !validIdentifier(request.GetCandidateId()) || !validModelVersion(request.GetModelVersion()) || !validScore(request.GetScore()) {
-		return verificationFragment{}, errors.New("speaker verification candidate is invalid")
+		return speakerVerificationFragment{}, errors.New("speaker verification candidate is invalid")
 	}
 
-	return verificationFragment{
-		metadata:             metadata,
-		capability:           readiness.SpeakerVerification,
-		requiredCapabilities: []readiness.CapabilityKind{readiness.SpeakerVerification},
-		challengeID:          request.GetVerificationChallengeId(),
+	return speakerVerificationFragment{
+		metadata:    metadata,
+		capability:  readiness.SpeakerVerification,
+		challengeID: request.GetVerificationChallengeId(),
 		candidate: identity.SpeakerVerificationCandidate{
 			ID:           request.GetCandidateId(),
 			Score:        request.GetScore(),
 			ModelVersion: request.GetModelVersion(),
-			OccurredAt:   metadata.occurredAt,
 		},
 	}, nil
 }
@@ -217,8 +234,8 @@ func mapEvidenceMetadata(wire *platformv1.IdentityEvidenceMetadata, now time.Tim
 }
 
 func validateCandidateCount(count int) error {
-	if count == 0 || count > maxCandidates {
-		return fmt.Errorf("candidate count must be between 1 and %d", maxCandidates)
+	if count > maxCandidates {
+		return fmt.Errorf("candidate count must not exceed %d", maxCandidates)
 	}
 	return nil
 }

@@ -34,9 +34,15 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// IdentityEvidenceIngressServicePublishFaceDetectionEvidenceProcedure is the fully-qualified name
+	// of the IdentityEvidenceIngressService's PublishFaceDetectionEvidence RPC.
+	IdentityEvidenceIngressServicePublishFaceDetectionEvidenceProcedure = "/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceDetectionEvidence"
 	// IdentityEvidenceIngressServicePublishFaceIdentificationEvidenceProcedure is the fully-qualified
 	// name of the IdentityEvidenceIngressService's PublishFaceIdentificationEvidence RPC.
 	IdentityEvidenceIngressServicePublishFaceIdentificationEvidenceProcedure = "/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceIdentificationEvidence"
+	// IdentityEvidenceIngressServicePublishFaceLivenessEvidenceProcedure is the fully-qualified name of
+	// the IdentityEvidenceIngressService's PublishFaceLivenessEvidence RPC.
+	IdentityEvidenceIngressServicePublishFaceLivenessEvidenceProcedure = "/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceLivenessEvidence"
 	// IdentityEvidenceIngressServicePublishSpeakerIdentificationEvidenceProcedure is the
 	// fully-qualified name of the IdentityEvidenceIngressService's PublishSpeakerIdentificationEvidence
 	// RPC.
@@ -49,7 +55,9 @@ const (
 // IdentityEvidenceIngressServiceClient is a client for the
 // proactive.platform.v1.IdentityEvidenceIngressService service.
 type IdentityEvidenceIngressServiceClient interface {
+	PublishFaceDetectionEvidence(context.Context, *connect.Request[v1.PublishFaceDetectionEvidenceRequest]) (*connect.Response[v1.PublishFaceDetectionEvidenceResponse], error)
 	PublishFaceIdentificationEvidence(context.Context, *connect.Request[v1.PublishFaceIdentificationEvidenceRequest]) (*connect.Response[v1.PublishFaceIdentificationEvidenceResponse], error)
+	PublishFaceLivenessEvidence(context.Context, *connect.Request[v1.PublishFaceLivenessEvidenceRequest]) (*connect.Response[v1.PublishFaceLivenessEvidenceResponse], error)
 	PublishSpeakerIdentificationEvidence(context.Context, *connect.Request[v1.PublishSpeakerIdentificationEvidenceRequest]) (*connect.Response[v1.PublishSpeakerIdentificationEvidenceResponse], error)
 	PublishSpeakerVerificationEvidence(context.Context, *connect.Request[v1.PublishSpeakerVerificationEvidenceRequest]) (*connect.Response[v1.PublishSpeakerVerificationEvidenceResponse], error)
 }
@@ -66,10 +74,22 @@ func NewIdentityEvidenceIngressServiceClient(httpClient connect.HTTPClient, base
 	baseURL = strings.TrimRight(baseURL, "/")
 	identityEvidenceIngressServiceMethods := v1.File_proactive_platform_v1_identity_proto.Services().ByName("IdentityEvidenceIngressService").Methods()
 	return &identityEvidenceIngressServiceClient{
+		publishFaceDetectionEvidence: connect.NewClient[v1.PublishFaceDetectionEvidenceRequest, v1.PublishFaceDetectionEvidenceResponse](
+			httpClient,
+			baseURL+IdentityEvidenceIngressServicePublishFaceDetectionEvidenceProcedure,
+			connect.WithSchema(identityEvidenceIngressServiceMethods.ByName("PublishFaceDetectionEvidence")),
+			connect.WithClientOptions(opts...),
+		),
 		publishFaceIdentificationEvidence: connect.NewClient[v1.PublishFaceIdentificationEvidenceRequest, v1.PublishFaceIdentificationEvidenceResponse](
 			httpClient,
 			baseURL+IdentityEvidenceIngressServicePublishFaceIdentificationEvidenceProcedure,
 			connect.WithSchema(identityEvidenceIngressServiceMethods.ByName("PublishFaceIdentificationEvidence")),
+			connect.WithClientOptions(opts...),
+		),
+		publishFaceLivenessEvidence: connect.NewClient[v1.PublishFaceLivenessEvidenceRequest, v1.PublishFaceLivenessEvidenceResponse](
+			httpClient,
+			baseURL+IdentityEvidenceIngressServicePublishFaceLivenessEvidenceProcedure,
+			connect.WithSchema(identityEvidenceIngressServiceMethods.ByName("PublishFaceLivenessEvidence")),
 			connect.WithClientOptions(opts...),
 		),
 		publishSpeakerIdentificationEvidence: connect.NewClient[v1.PublishSpeakerIdentificationEvidenceRequest, v1.PublishSpeakerIdentificationEvidenceResponse](
@@ -89,15 +109,29 @@ func NewIdentityEvidenceIngressServiceClient(httpClient connect.HTTPClient, base
 
 // identityEvidenceIngressServiceClient implements IdentityEvidenceIngressServiceClient.
 type identityEvidenceIngressServiceClient struct {
+	publishFaceDetectionEvidence         *connect.Client[v1.PublishFaceDetectionEvidenceRequest, v1.PublishFaceDetectionEvidenceResponse]
 	publishFaceIdentificationEvidence    *connect.Client[v1.PublishFaceIdentificationEvidenceRequest, v1.PublishFaceIdentificationEvidenceResponse]
+	publishFaceLivenessEvidence          *connect.Client[v1.PublishFaceLivenessEvidenceRequest, v1.PublishFaceLivenessEvidenceResponse]
 	publishSpeakerIdentificationEvidence *connect.Client[v1.PublishSpeakerIdentificationEvidenceRequest, v1.PublishSpeakerIdentificationEvidenceResponse]
 	publishSpeakerVerificationEvidence   *connect.Client[v1.PublishSpeakerVerificationEvidenceRequest, v1.PublishSpeakerVerificationEvidenceResponse]
+}
+
+// PublishFaceDetectionEvidence calls
+// proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceDetectionEvidence.
+func (c *identityEvidenceIngressServiceClient) PublishFaceDetectionEvidence(ctx context.Context, req *connect.Request[v1.PublishFaceDetectionEvidenceRequest]) (*connect.Response[v1.PublishFaceDetectionEvidenceResponse], error) {
+	return c.publishFaceDetectionEvidence.CallUnary(ctx, req)
 }
 
 // PublishFaceIdentificationEvidence calls
 // proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceIdentificationEvidence.
 func (c *identityEvidenceIngressServiceClient) PublishFaceIdentificationEvidence(ctx context.Context, req *connect.Request[v1.PublishFaceIdentificationEvidenceRequest]) (*connect.Response[v1.PublishFaceIdentificationEvidenceResponse], error) {
 	return c.publishFaceIdentificationEvidence.CallUnary(ctx, req)
+}
+
+// PublishFaceLivenessEvidence calls
+// proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceLivenessEvidence.
+func (c *identityEvidenceIngressServiceClient) PublishFaceLivenessEvidence(ctx context.Context, req *connect.Request[v1.PublishFaceLivenessEvidenceRequest]) (*connect.Response[v1.PublishFaceLivenessEvidenceResponse], error) {
+	return c.publishFaceLivenessEvidence.CallUnary(ctx, req)
 }
 
 // PublishSpeakerIdentificationEvidence calls
@@ -115,7 +149,9 @@ func (c *identityEvidenceIngressServiceClient) PublishSpeakerVerificationEvidenc
 // IdentityEvidenceIngressServiceHandler is an implementation of the
 // proactive.platform.v1.IdentityEvidenceIngressService service.
 type IdentityEvidenceIngressServiceHandler interface {
+	PublishFaceDetectionEvidence(context.Context, *connect.Request[v1.PublishFaceDetectionEvidenceRequest]) (*connect.Response[v1.PublishFaceDetectionEvidenceResponse], error)
 	PublishFaceIdentificationEvidence(context.Context, *connect.Request[v1.PublishFaceIdentificationEvidenceRequest]) (*connect.Response[v1.PublishFaceIdentificationEvidenceResponse], error)
+	PublishFaceLivenessEvidence(context.Context, *connect.Request[v1.PublishFaceLivenessEvidenceRequest]) (*connect.Response[v1.PublishFaceLivenessEvidenceResponse], error)
 	PublishSpeakerIdentificationEvidence(context.Context, *connect.Request[v1.PublishSpeakerIdentificationEvidenceRequest]) (*connect.Response[v1.PublishSpeakerIdentificationEvidenceResponse], error)
 	PublishSpeakerVerificationEvidence(context.Context, *connect.Request[v1.PublishSpeakerVerificationEvidenceRequest]) (*connect.Response[v1.PublishSpeakerVerificationEvidenceResponse], error)
 }
@@ -127,10 +163,22 @@ type IdentityEvidenceIngressServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewIdentityEvidenceIngressServiceHandler(svc IdentityEvidenceIngressServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	identityEvidenceIngressServiceMethods := v1.File_proactive_platform_v1_identity_proto.Services().ByName("IdentityEvidenceIngressService").Methods()
+	identityEvidenceIngressServicePublishFaceDetectionEvidenceHandler := connect.NewUnaryHandler(
+		IdentityEvidenceIngressServicePublishFaceDetectionEvidenceProcedure,
+		svc.PublishFaceDetectionEvidence,
+		connect.WithSchema(identityEvidenceIngressServiceMethods.ByName("PublishFaceDetectionEvidence")),
+		connect.WithHandlerOptions(opts...),
+	)
 	identityEvidenceIngressServicePublishFaceIdentificationEvidenceHandler := connect.NewUnaryHandler(
 		IdentityEvidenceIngressServicePublishFaceIdentificationEvidenceProcedure,
 		svc.PublishFaceIdentificationEvidence,
 		connect.WithSchema(identityEvidenceIngressServiceMethods.ByName("PublishFaceIdentificationEvidence")),
+		connect.WithHandlerOptions(opts...),
+	)
+	identityEvidenceIngressServicePublishFaceLivenessEvidenceHandler := connect.NewUnaryHandler(
+		IdentityEvidenceIngressServicePublishFaceLivenessEvidenceProcedure,
+		svc.PublishFaceLivenessEvidence,
+		connect.WithSchema(identityEvidenceIngressServiceMethods.ByName("PublishFaceLivenessEvidence")),
 		connect.WithHandlerOptions(opts...),
 	)
 	identityEvidenceIngressServicePublishSpeakerIdentificationEvidenceHandler := connect.NewUnaryHandler(
@@ -147,8 +195,12 @@ func NewIdentityEvidenceIngressServiceHandler(svc IdentityEvidenceIngressService
 	)
 	return "/proactive.platform.v1.IdentityEvidenceIngressService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case IdentityEvidenceIngressServicePublishFaceDetectionEvidenceProcedure:
+			identityEvidenceIngressServicePublishFaceDetectionEvidenceHandler.ServeHTTP(w, r)
 		case IdentityEvidenceIngressServicePublishFaceIdentificationEvidenceProcedure:
 			identityEvidenceIngressServicePublishFaceIdentificationEvidenceHandler.ServeHTTP(w, r)
+		case IdentityEvidenceIngressServicePublishFaceLivenessEvidenceProcedure:
+			identityEvidenceIngressServicePublishFaceLivenessEvidenceHandler.ServeHTTP(w, r)
 		case IdentityEvidenceIngressServicePublishSpeakerIdentificationEvidenceProcedure:
 			identityEvidenceIngressServicePublishSpeakerIdentificationEvidenceHandler.ServeHTTP(w, r)
 		case IdentityEvidenceIngressServicePublishSpeakerVerificationEvidenceProcedure:
@@ -162,8 +214,16 @@ func NewIdentityEvidenceIngressServiceHandler(svc IdentityEvidenceIngressService
 // UnimplementedIdentityEvidenceIngressServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedIdentityEvidenceIngressServiceHandler struct{}
 
+func (UnimplementedIdentityEvidenceIngressServiceHandler) PublishFaceDetectionEvidence(context.Context, *connect.Request[v1.PublishFaceDetectionEvidenceRequest]) (*connect.Response[v1.PublishFaceDetectionEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceDetectionEvidence is not implemented"))
+}
+
 func (UnimplementedIdentityEvidenceIngressServiceHandler) PublishFaceIdentificationEvidence(context.Context, *connect.Request[v1.PublishFaceIdentificationEvidenceRequest]) (*connect.Response[v1.PublishFaceIdentificationEvidenceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceIdentificationEvidence is not implemented"))
+}
+
+func (UnimplementedIdentityEvidenceIngressServiceHandler) PublishFaceLivenessEvidence(context.Context, *connect.Request[v1.PublishFaceLivenessEvidenceRequest]) (*connect.Response[v1.PublishFaceLivenessEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceLivenessEvidence is not implemented"))
 }
 
 func (UnimplementedIdentityEvidenceIngressServiceHandler) PublishSpeakerIdentificationEvidence(context.Context, *connect.Request[v1.PublishSpeakerIdentificationEvidenceRequest]) (*connect.Response[v1.PublishSpeakerIdentificationEvidenceResponse], error) {

@@ -19,7 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	IdentityEvidenceIngressService_PublishFaceDetectionEvidence_FullMethodName         = "/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceDetectionEvidence"
 	IdentityEvidenceIngressService_PublishFaceIdentificationEvidence_FullMethodName    = "/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceIdentificationEvidence"
+	IdentityEvidenceIngressService_PublishFaceLivenessEvidence_FullMethodName          = "/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceLivenessEvidence"
 	IdentityEvidenceIngressService_PublishSpeakerIdentificationEvidence_FullMethodName = "/proactive.platform.v1.IdentityEvidenceIngressService/PublishSpeakerIdentificationEvidence"
 	IdentityEvidenceIngressService_PublishSpeakerVerificationEvidence_FullMethodName   = "/proactive.platform.v1.IdentityEvidenceIngressService/PublishSpeakerVerificationEvidence"
 )
@@ -28,13 +30,17 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// IdentityEvidenceIngressService accepts only biometric candidate fragments.
+// IdentityEvidenceIngressService accepts only strongly typed biometric evidence
+// fragments. Face detection, identification and liveness remain independent
+// capability and lease boundaries.
 // Acceptance is not a trusted identity result. A bounded application-owned
 // coordinator validates and groups fragments, then resolves exactly once only
 // after the issued evidence window closes. A handler must never resolve or
 // publish identity from one arriving fragment.
 type IdentityEvidenceIngressServiceClient interface {
+	PublishFaceDetectionEvidence(ctx context.Context, in *PublishFaceDetectionEvidenceRequest, opts ...grpc.CallOption) (*PublishFaceDetectionEvidenceResponse, error)
 	PublishFaceIdentificationEvidence(ctx context.Context, in *PublishFaceIdentificationEvidenceRequest, opts ...grpc.CallOption) (*PublishFaceIdentificationEvidenceResponse, error)
+	PublishFaceLivenessEvidence(ctx context.Context, in *PublishFaceLivenessEvidenceRequest, opts ...grpc.CallOption) (*PublishFaceLivenessEvidenceResponse, error)
 	PublishSpeakerIdentificationEvidence(ctx context.Context, in *PublishSpeakerIdentificationEvidenceRequest, opts ...grpc.CallOption) (*PublishSpeakerIdentificationEvidenceResponse, error)
 	PublishSpeakerVerificationEvidence(ctx context.Context, in *PublishSpeakerVerificationEvidenceRequest, opts ...grpc.CallOption) (*PublishSpeakerVerificationEvidenceResponse, error)
 }
@@ -47,10 +53,30 @@ func NewIdentityEvidenceIngressServiceClient(cc grpc.ClientConnInterface) Identi
 	return &identityEvidenceIngressServiceClient{cc}
 }
 
+func (c *identityEvidenceIngressServiceClient) PublishFaceDetectionEvidence(ctx context.Context, in *PublishFaceDetectionEvidenceRequest, opts ...grpc.CallOption) (*PublishFaceDetectionEvidenceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PublishFaceDetectionEvidenceResponse)
+	err := c.cc.Invoke(ctx, IdentityEvidenceIngressService_PublishFaceDetectionEvidence_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *identityEvidenceIngressServiceClient) PublishFaceIdentificationEvidence(ctx context.Context, in *PublishFaceIdentificationEvidenceRequest, opts ...grpc.CallOption) (*PublishFaceIdentificationEvidenceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PublishFaceIdentificationEvidenceResponse)
 	err := c.cc.Invoke(ctx, IdentityEvidenceIngressService_PublishFaceIdentificationEvidence_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *identityEvidenceIngressServiceClient) PublishFaceLivenessEvidence(ctx context.Context, in *PublishFaceLivenessEvidenceRequest, opts ...grpc.CallOption) (*PublishFaceLivenessEvidenceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PublishFaceLivenessEvidenceResponse)
+	err := c.cc.Invoke(ctx, IdentityEvidenceIngressService_PublishFaceLivenessEvidence_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -81,13 +107,17 @@ func (c *identityEvidenceIngressServiceClient) PublishSpeakerVerificationEvidenc
 // All implementations must embed UnimplementedIdentityEvidenceIngressServiceServer
 // for forward compatibility.
 //
-// IdentityEvidenceIngressService accepts only biometric candidate fragments.
+// IdentityEvidenceIngressService accepts only strongly typed biometric evidence
+// fragments. Face detection, identification and liveness remain independent
+// capability and lease boundaries.
 // Acceptance is not a trusted identity result. A bounded application-owned
 // coordinator validates and groups fragments, then resolves exactly once only
 // after the issued evidence window closes. A handler must never resolve or
 // publish identity from one arriving fragment.
 type IdentityEvidenceIngressServiceServer interface {
+	PublishFaceDetectionEvidence(context.Context, *PublishFaceDetectionEvidenceRequest) (*PublishFaceDetectionEvidenceResponse, error)
 	PublishFaceIdentificationEvidence(context.Context, *PublishFaceIdentificationEvidenceRequest) (*PublishFaceIdentificationEvidenceResponse, error)
+	PublishFaceLivenessEvidence(context.Context, *PublishFaceLivenessEvidenceRequest) (*PublishFaceLivenessEvidenceResponse, error)
 	PublishSpeakerIdentificationEvidence(context.Context, *PublishSpeakerIdentificationEvidenceRequest) (*PublishSpeakerIdentificationEvidenceResponse, error)
 	PublishSpeakerVerificationEvidence(context.Context, *PublishSpeakerVerificationEvidenceRequest) (*PublishSpeakerVerificationEvidenceResponse, error)
 	mustEmbedUnimplementedIdentityEvidenceIngressServiceServer()
@@ -100,8 +130,14 @@ type IdentityEvidenceIngressServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedIdentityEvidenceIngressServiceServer struct{}
 
+func (UnimplementedIdentityEvidenceIngressServiceServer) PublishFaceDetectionEvidence(context.Context, *PublishFaceDetectionEvidenceRequest) (*PublishFaceDetectionEvidenceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PublishFaceDetectionEvidence not implemented")
+}
 func (UnimplementedIdentityEvidenceIngressServiceServer) PublishFaceIdentificationEvidence(context.Context, *PublishFaceIdentificationEvidenceRequest) (*PublishFaceIdentificationEvidenceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PublishFaceIdentificationEvidence not implemented")
+}
+func (UnimplementedIdentityEvidenceIngressServiceServer) PublishFaceLivenessEvidence(context.Context, *PublishFaceLivenessEvidenceRequest) (*PublishFaceLivenessEvidenceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PublishFaceLivenessEvidence not implemented")
 }
 func (UnimplementedIdentityEvidenceIngressServiceServer) PublishSpeakerIdentificationEvidence(context.Context, *PublishSpeakerIdentificationEvidenceRequest) (*PublishSpeakerIdentificationEvidenceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PublishSpeakerIdentificationEvidence not implemented")
@@ -131,6 +167,24 @@ func RegisterIdentityEvidenceIngressServiceServer(s grpc.ServiceRegistrar, srv I
 	s.RegisterService(&IdentityEvidenceIngressService_ServiceDesc, srv)
 }
 
+func _IdentityEvidenceIngressService_PublishFaceDetectionEvidence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PublishFaceDetectionEvidenceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityEvidenceIngressServiceServer).PublishFaceDetectionEvidence(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityEvidenceIngressService_PublishFaceDetectionEvidence_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityEvidenceIngressServiceServer).PublishFaceDetectionEvidence(ctx, req.(*PublishFaceDetectionEvidenceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _IdentityEvidenceIngressService_PublishFaceIdentificationEvidence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PublishFaceIdentificationEvidenceRequest)
 	if err := dec(in); err != nil {
@@ -145,6 +199,24 @@ func _IdentityEvidenceIngressService_PublishFaceIdentificationEvidence_Handler(s
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(IdentityEvidenceIngressServiceServer).PublishFaceIdentificationEvidence(ctx, req.(*PublishFaceIdentificationEvidenceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IdentityEvidenceIngressService_PublishFaceLivenessEvidence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PublishFaceLivenessEvidenceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityEvidenceIngressServiceServer).PublishFaceLivenessEvidence(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityEvidenceIngressService_PublishFaceLivenessEvidence_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityEvidenceIngressServiceServer).PublishFaceLivenessEvidence(ctx, req.(*PublishFaceLivenessEvidenceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -193,8 +265,16 @@ var IdentityEvidenceIngressService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*IdentityEvidenceIngressServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
+			MethodName: "PublishFaceDetectionEvidence",
+			Handler:    _IdentityEvidenceIngressService_PublishFaceDetectionEvidence_Handler,
+		},
+		{
 			MethodName: "PublishFaceIdentificationEvidence",
 			Handler:    _IdentityEvidenceIngressService_PublishFaceIdentificationEvidence_Handler,
+		},
+		{
+			MethodName: "PublishFaceLivenessEvidence",
+			Handler:    _IdentityEvidenceIngressService_PublishFaceLivenessEvidence_Handler,
 		},
 		{
 			MethodName: "PublishSpeakerIdentificationEvidence",

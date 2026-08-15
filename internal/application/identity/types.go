@@ -18,8 +18,6 @@ type FaceIdentificationCandidate struct {
 	ProfileRef   string
 	Score        float64
 	ModelVersion string
-	OccurredAt   time.Time
-	Liveness     Liveness
 }
 
 // SpeakerIdentificationCandidate contains only identity metadata produced by
@@ -29,7 +27,6 @@ type SpeakerIdentificationCandidate struct {
 	ProfileRef   string
 	Score        float64
 	ModelVersion string
-	OccurredAt   time.Time
 }
 
 // SpeakerVerificationCandidate contains only identity metadata produced by a
@@ -39,17 +36,51 @@ type SpeakerVerificationCandidate struct {
 	ProfileRef   string
 	Score        float64
 	ModelVersion string
-	OccurredAt   time.Time
 }
 
-// Evidence is one deterministic resolution input. Identification and
-// verification evidence are mutually exclusive.
+// FaceDetectionEvidence is one complete face-count result. A zero count is an
+// explicit observation and differs from an absent detection fragment.
+type FaceDetectionEvidence struct {
+	OccurredAt    time.Time
+	FacesObserved uint32
+}
+
+// FaceIdentificationEvidence is one complete open-set face match result. An
+// empty candidate slice is a valid no-match result.
+type FaceIdentificationEvidence struct {
+	OccurredAt time.Time
+	Candidates []FaceIdentificationCandidate
+}
+
+// FaceLivenessEvidence is one independent liveness result.
+type FaceLivenessEvidence struct {
+	OccurredAt time.Time
+	State      Liveness
+}
+
+// SpeakerIdentificationEvidence is one complete open-set speaker match
+// result. An empty candidate slice is a valid no-match result.
+type SpeakerIdentificationEvidence struct {
+	OccurredAt time.Time
+	Candidates []SpeakerIdentificationCandidate
+}
+
+// SpeakerVerificationEvidence verifies candidates only against the explicit
+// expected profile supplied by application-owned challenge state.
+type SpeakerVerificationEvidence struct {
+	OccurredAt         time.Time
+	ExpectedProfileRef string
+	Candidates         []SpeakerVerificationCandidate
+}
+
+// Evidence is one deterministic, presence-aware resolution input.
+// Identification and verification fragments are mutually exclusive.
 type Evidence struct {
-	FacesObserved          uint32
-	ExpectedProfileRef     string
-	FaceIdentifications    []FaceIdentificationCandidate
-	SpeakerIdentifications []SpeakerIdentificationCandidate
-	SpeakerVerifications   []SpeakerVerificationCandidate
+	FaceDetection         *FaceDetectionEvidence
+	FaceIdentification    *FaceIdentificationEvidence
+	FaceLiveness          *FaceLivenessEvidence
+	SpeakerIdentification *SpeakerIdentificationEvidence
+	SpeakerVerification   *SpeakerVerificationEvidence
 }
 
 // Policy explicitly supplies every threshold and temporal bound used by the
@@ -89,6 +120,7 @@ const (
 	ReasonMultipleVerificationMatches Reason = "MULTIPLE_VERIFICATION_MATCHES"
 	ReasonLivenessMissing             Reason = "LIVENESS_MISSING"
 	ReasonLivenessFailed              Reason = "LIVENESS_FAILED"
+	ReasonFaceDetectionMismatch       Reason = "FACE_DETECTION_MISMATCH"
 	ReasonEvidenceExpired             Reason = "EVIDENCE_EXPIRED"
 	ReasonEvidenceTimeSkew            Reason = "EVIDENCE_TIME_SKEW"
 	ReasonVerificationTargetMismatch  Reason = "VERIFICATION_TARGET_MISMATCH"

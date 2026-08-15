@@ -25,13 +25,16 @@ func ResolveAt(policy Policy, evidence Evidence, now time.Time) (Resolution, err
 	if outsideSkew(times, policy.MaxEvidenceSkew) {
 		return anonymous(policy, ReasonEvidenceTimeSkew), nil
 	}
-	if len(evidence.SpeakerVerifications) > 0 {
-		return resolveVerification(policy, evidence), nil
+	if evidence.FaceDetection != nil && evidence.FaceDetection.FacesObserved > 1 {
+		return anonymous(policy, ReasonMultiplePeople), nil
+	}
+	if evidence.SpeakerVerification != nil {
+		return resolveVerification(policy, *evidence.SpeakerVerification), nil
 	}
 	return resolveIdentification(policy, evidence), nil
 }
 
-// ValidateAt checks policy and candidate shape without resolving a profile.
+// ValidateAt checks policy and evidence shape without resolving a profile.
 // Privacy authorization is a separate gate applied by ResolveAuthorizedAt.
 func ValidateAt(policy Policy, evidence Evidence, now time.Time) error {
 	_, err := validateAt(policy, evidence, now)
@@ -42,11 +45,7 @@ func validateAt(policy Policy, evidence Evidence, now time.Time) ([]time.Time, e
 	if err := validatePolicy(policy); err != nil {
 		return nil, err
 	}
-	times, err := validateEvidence(evidence, now)
-	if err != nil {
-		return nil, err
-	}
-	return times, nil
+	return validateEvidence(evidence, now)
 }
 
 func validatePolicy(policy Policy) error {
@@ -76,55 +75,76 @@ func validateEvidence(evidence Evidence, now time.Time) ([]time.Time, error) {
 	if now.IsZero() {
 		return nil, invalidInput("evaluation time is required")
 	}
-	identifications := len(evidence.FaceIdentifications) + len(evidence.SpeakerIdentifications)
-	verifications := len(evidence.SpeakerVerifications)
-	if identifications+verifications == 0 {
-		return nil, invalidInput("at least one identity candidate is required")
-	}
-	if len(evidence.FaceIdentifications) == 0 && evidence.FacesObserved != 0 {
-		return nil, invalidInput("face count requires face identification evidence")
-	}
-	if len(evidence.FaceIdentifications) > 0 && evidence.FacesObserved == 0 {
-		return nil, invalidInput("face identification evidence requires a positive face count")
-	}
-	if verifications > 0 {
-		if identifications > 0 || evidence.FacesObserved != 0 {
-			return nil, invalidInput("identification and verification evidence must not be mixed")
-		}
-		if !validRequiredString(evidence.ExpectedProfileRef) {
-			return nil, invalidInput("speaker verification requires an expected profile reference")
-		}
-	} else if evidence.ExpectedProfileRef != "" {
-		return nil, invalidInput("expected profile reference is valid only for speaker verification")
+	if evidence.SpeakerVerification != nil &&
+		(evidence.FaceIdentification != nil || evidence.SpeakerIdentification != nil) {
+		return nil, invalidInput("identification and verification evidence must not be mixed")
 	}
 
-	seenIDs := make(map[string]struct{}, identifications+verifications)
-	times := make([]time.Time, 0, identifications+verifications)
-	for _, candidate := range evidence.FaceIdentifications {
-		if err := validateCandidate(candidate.ID, candidate.ProfileRef, candidate.Score, candidate.ModelVersion, candidate.OccurredAt, now, seenIDs); err != nil {
-			return nil, err
+	times := make([]time.Time, 0, 5)
+	appendTime := func(kind string, occurredAt time.Time) error {
+		if occurredAt.IsZero() {
+			return invalidInput("%s evidence time is required", kind)
 		}
-		if candidate.Liveness != LivenessUnknown && candidate.Liveness != LivenessPassed && candidate.Liveness != LivenessFailed {
-			return nil, invalidInput("face candidate %q has unknown liveness", candidate.ID)
+		if occurredAt.After(now) {
+			return invalidInput("%s evidence time is in the future", kind)
 		}
-		times = append(times, candidate.OccurredAt)
+		times = append(times, occurredAt)
+		return nil
 	}
-	for _, candidate := range evidence.SpeakerIdentifications {
-		if err := validateCandidate(candidate.ID, candidate.ProfileRef, candidate.Score, candidate.ModelVersion, candidate.OccurredAt, now, seenIDs); err != nil {
+
+	if fragment := evidence.FaceDetection; fragment != nil {
+		if err := appendTime("face detection", fragment.OccurredAt); err != nil {
 			return nil, err
 		}
-		times = append(times, candidate.OccurredAt)
 	}
-	for _, candidate := range evidence.SpeakerVerifications {
-		if err := validateCandidate(candidate.ID, candidate.ProfileRef, candidate.Score, candidate.ModelVersion, candidate.OccurredAt, now, seenIDs); err != nil {
+	if fragment := evidence.FaceIdentification; fragment != nil {
+		if err := appendTime("face identification", fragment.OccurredAt); err != nil {
 			return nil, err
 		}
-		times = append(times, candidate.OccurredAt)
+		seenIDs := make(map[string]struct{}, len(fragment.Candidates))
+		for _, candidate := range fragment.Candidates {
+			if err := validateCandidate(candidate.ID, candidate.ProfileRef, candidate.Score, candidate.ModelVersion, seenIDs); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if fragment := evidence.FaceLiveness; fragment != nil {
+		if err := appendTime("face liveness", fragment.OccurredAt); err != nil {
+			return nil, err
+		}
+		if fragment.State != LivenessUnknown && fragment.State != LivenessPassed && fragment.State != LivenessFailed {
+			return nil, invalidInput("face liveness state is unknown")
+		}
+	}
+	if fragment := evidence.SpeakerIdentification; fragment != nil {
+		if err := appendTime("speaker identification", fragment.OccurredAt); err != nil {
+			return nil, err
+		}
+		seenIDs := make(map[string]struct{}, len(fragment.Candidates))
+		for _, candidate := range fragment.Candidates {
+			if err := validateCandidate(candidate.ID, candidate.ProfileRef, candidate.Score, candidate.ModelVersion, seenIDs); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if fragment := evidence.SpeakerVerification; fragment != nil {
+		if err := appendTime("speaker verification", fragment.OccurredAt); err != nil {
+			return nil, err
+		}
+		if !validRequiredString(fragment.ExpectedProfileRef) {
+			return nil, invalidInput("speaker verification requires an expected profile reference")
+		}
+		seenIDs := make(map[string]struct{}, len(fragment.Candidates))
+		for _, candidate := range fragment.Candidates {
+			if err := validateCandidate(candidate.ID, candidate.ProfileRef, candidate.Score, candidate.ModelVersion, seenIDs); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return times, nil
 }
 
-func validateCandidate(id, profileRef string, score float64, modelVersion string, occurredAt, now time.Time, seenIDs map[string]struct{}) error {
+func validateCandidate(id, profileRef string, score float64, modelVersion string, seenIDs map[string]struct{}) error {
 	if !validRequiredString(id) || !validRequiredString(profileRef) || !validRequiredString(modelVersion) {
 		return invalidInput("candidate identity, profile reference, and model version are required")
 	}
@@ -135,44 +155,54 @@ func validateCandidate(id, profileRef string, score float64, modelVersion string
 	if math.IsNaN(score) || math.IsInf(score, 0) || score < 0 || score > 1 {
 		return invalidInput("candidate %q score is outside [0,1]", id)
 	}
-	if occurredAt.IsZero() {
-		return invalidInput("candidate %q event time is required", id)
-	}
-	if occurredAt.After(now) {
-		return invalidInput("candidate %q event time is in the future", id)
-	}
 	return nil
 }
 
 func resolveIdentification(policy Policy, evidence Evidence) Resolution {
-	faceProfiles, faceCandidates := qualifyingFaces(evidence.FaceIdentifications, policy.FaceIdentificationThreshold)
+	if evidence.FaceDetection != nil && evidence.FaceDetection.FacesObserved == 0 &&
+		evidence.FaceIdentification != nil && len(evidence.FaceIdentification.Candidates) > 0 {
+		return anonymous(policy, ReasonFaceDetectionMismatch)
+	}
+
+	faceProfiles := []string(nil)
+	if evidence.FaceDetection != nil && evidence.FaceDetection.FacesObserved == 1 && evidence.FaceIdentification != nil {
+		faceProfiles = qualifyingFaceProfiles(evidence.FaceIdentification.Candidates, policy.FaceIdentificationThreshold)
+	}
 	if len(faceProfiles) > 1 {
 		return anonymous(policy, ReasonMultipleFaceMatches)
 	}
-	if evidence.FacesObserved > 1 {
-		return anonymous(policy, ReasonMultiplePeople)
-	}
-	if len(faceProfiles) == 1 && policy.RequireFaceLiveness {
-		failed, missing := livenessState(faceCandidates)
-		if failed {
-			return anonymous(policy, ReasonLivenessFailed)
-		}
-		if missing {
-			return anonymous(policy, ReasonLivenessMissing)
-		}
-	}
 
-	speakerProfiles := qualifyingSpeakerProfiles(evidence.SpeakerIdentifications, policy.SpeakerIdentificationThreshold)
+	speakerProfiles := []string(nil)
+	if evidence.SpeakerIdentification != nil {
+		speakerProfiles = qualifyingSpeakerProfiles(evidence.SpeakerIdentification.Candidates, policy.SpeakerIdentificationThreshold)
+	}
 	if len(speakerProfiles) > 1 {
 		return anonymous(policy, ReasonMultipleSpeakerMatches)
 	}
-	if len(faceProfiles) == 1 && len(speakerProfiles) == 1 {
+
+	faceAvailable := len(faceProfiles) == 1
+	if faceAvailable && policy.RequireFaceLiveness {
+		switch {
+		case evidence.FaceLiveness == nil || evidence.FaceLiveness.State == LivenessUnknown:
+			faceAvailable = false
+			if len(speakerProfiles) == 0 {
+				return anonymous(policy, ReasonLivenessMissing)
+			}
+		case evidence.FaceLiveness.State == LivenessFailed:
+			faceAvailable = false
+			if len(speakerProfiles) == 0 {
+				return anonymous(policy, ReasonLivenessFailed)
+			}
+		}
+	}
+
+	if faceAvailable && len(speakerProfiles) == 1 {
 		if faceProfiles[0] != speakerProfiles[0] {
 			return anonymous(policy, ReasonModalityConflict)
 		}
 		return recognized(policy, faceProfiles[0], ReasonModalitiesMatched)
 	}
-	if len(faceProfiles) == 1 {
+	if faceAvailable {
 		return recognized(policy, faceProfiles[0], ReasonFaceIdentified)
 	}
 	if len(speakerProfiles) == 1 {
@@ -181,9 +211,9 @@ func resolveIdentification(policy Policy, evidence Evidence) Resolution {
 	return anonymous(policy, ReasonNoMatch)
 }
 
-func resolveVerification(policy Policy, evidence Evidence) Resolution {
+func resolveVerification(policy Policy, evidence SpeakerVerificationEvidence) Resolution {
 	profiles := make(map[string]struct{})
-	for _, candidate := range evidence.SpeakerVerifications {
+	for _, candidate := range evidence.Candidates {
 		if candidate.Score >= policy.SpeakerVerificationThreshold {
 			profiles[candidate.ProfileRef] = struct{}{}
 		}
@@ -203,17 +233,14 @@ func resolveVerification(policy Policy, evidence Evidence) Resolution {
 	}
 }
 
-func qualifyingFaces(candidates []FaceIdentificationCandidate, threshold float64) ([]string, []FaceIdentificationCandidate) {
+func qualifyingFaceProfiles(candidates []FaceIdentificationCandidate, threshold float64) []string {
 	profiles := make(map[string]struct{})
-	qualified := make([]FaceIdentificationCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.Score < threshold {
-			continue
+		if candidate.Score >= threshold {
+			profiles[candidate.ProfileRef] = struct{}{}
 		}
-		profiles[candidate.ProfileRef] = struct{}{}
-		qualified = append(qualified, candidate)
 	}
-	return sortedProfiles(profiles), qualified
+	return sortedProfiles(profiles)
 }
 
 func qualifyingSpeakerProfiles(candidates []SpeakerIdentificationCandidate, threshold float64) []string {
@@ -224,18 +251,6 @@ func qualifyingSpeakerProfiles(candidates []SpeakerIdentificationCandidate, thre
 		}
 	}
 	return sortedProfiles(profiles)
-}
-
-func livenessState(candidates []FaceIdentificationCandidate) (failed bool, missing bool) {
-	for _, candidate := range candidates {
-		switch candidate.Liveness {
-		case LivenessFailed:
-			failed = true
-		case LivenessUnknown:
-			missing = true
-		}
-	}
-	return failed, missing
 }
 
 func sortedProfiles(profiles map[string]struct{}) []string {
@@ -257,6 +272,9 @@ func expired(times []time.Time, now time.Time, maximumAge time.Duration) bool {
 }
 
 func outsideSkew(times []time.Time, maximumSkew time.Duration) bool {
+	if len(times) < 2 {
+		return false
+	}
 	oldest, newest := times[0], times[0]
 	for _, occurredAt := range times[1:] {
 		if occurredAt.Before(oldest) {

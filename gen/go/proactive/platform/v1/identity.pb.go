@@ -201,7 +201,7 @@ func (IdentityEvidenceReceiptReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // IdentityEvidenceMetadata is transport and lease metadata shared by the
-// three strongly typed RPCs. It contains no media, embedding or template.
+// strongly typed evidence RPCs. It contains no media, embedding or template.
 type IdentityEvidenceMetadata struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	FragmentId       string                 `protobuf:"bytes,1,opt,name=fragment_id,json=fragmentId,proto3" json:"fragment_id,omitempty"`
@@ -305,12 +305,106 @@ func (x *IdentityEvidenceMetadata) GetEvidenceWindowId() string {
 	return ""
 }
 
-type PublishFaceIdentificationEvidenceRequest struct {
+type PublishFaceDetectionEvidenceRequest struct {
 	state    protoimpl.MessageState    `protogen:"open.v1"`
 	Metadata *IdentityEvidenceMetadata `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	// Number of people observed in the frame used for this evidence. Values
-	// above one force anonymous resolution even if one candidate scores highly.
-	FacesObserved uint32                         `protobuf:"varint,2,opt,name=faces_observed,json=facesObserved,proto3" json:"faces_observed,omitempty"`
+	// Zero is an explicit successful detection result with no observed face.
+	FacesObserved uint32 `protobuf:"varint,2,opt,name=faces_observed,json=facesObserved,proto3" json:"faces_observed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishFaceDetectionEvidenceRequest) Reset() {
+	*x = PublishFaceDetectionEvidenceRequest{}
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishFaceDetectionEvidenceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishFaceDetectionEvidenceRequest) ProtoMessage() {}
+
+func (x *PublishFaceDetectionEvidenceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishFaceDetectionEvidenceRequest.ProtoReflect.Descriptor instead.
+func (*PublishFaceDetectionEvidenceRequest) Descriptor() ([]byte, []int) {
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *PublishFaceDetectionEvidenceRequest) GetMetadata() *IdentityEvidenceMetadata {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+func (x *PublishFaceDetectionEvidenceRequest) GetFacesObserved() uint32 {
+	if x != nil {
+		return x.FacesObserved
+	}
+	return 0
+}
+
+type PublishFaceDetectionEvidenceResponse struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Receipt       *IdentityEvidenceReceipt `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishFaceDetectionEvidenceResponse) Reset() {
+	*x = PublishFaceDetectionEvidenceResponse{}
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishFaceDetectionEvidenceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishFaceDetectionEvidenceResponse) ProtoMessage() {}
+
+func (x *PublishFaceDetectionEvidenceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishFaceDetectionEvidenceResponse.ProtoReflect.Descriptor instead.
+func (*PublishFaceDetectionEvidenceResponse) Descriptor() ([]byte, []int) {
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *PublishFaceDetectionEvidenceResponse) GetReceipt() *IdentityEvidenceReceipt {
+	if x != nil {
+		return x.Receipt
+	}
+	return nil
+}
+
+type PublishFaceIdentificationEvidenceRequest struct {
+	state         protoimpl.MessageState         `protogen:"open.v1"`
+	Metadata      *IdentityEvidenceMetadata      `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	Candidates    []*FaceIdentificationCandidate `protobuf:"bytes,3,rep,name=candidates,proto3" json:"candidates,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -318,7 +412,7 @@ type PublishFaceIdentificationEvidenceRequest struct {
 
 func (x *PublishFaceIdentificationEvidenceRequest) Reset() {
 	*x = PublishFaceIdentificationEvidenceRequest{}
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[1]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -330,7 +424,7 @@ func (x *PublishFaceIdentificationEvidenceRequest) String() string {
 func (*PublishFaceIdentificationEvidenceRequest) ProtoMessage() {}
 
 func (x *PublishFaceIdentificationEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[1]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -343,7 +437,7 @@ func (x *PublishFaceIdentificationEvidenceRequest) ProtoReflect() protoreflect.M
 
 // Deprecated: Use PublishFaceIdentificationEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*PublishFaceIdentificationEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{1}
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *PublishFaceIdentificationEvidenceRequest) GetMetadata() *IdentityEvidenceMetadata {
@@ -351,13 +445,6 @@ func (x *PublishFaceIdentificationEvidenceRequest) GetMetadata() *IdentityEviden
 		return x.Metadata
 	}
 	return nil
-}
-
-func (x *PublishFaceIdentificationEvidenceRequest) GetFacesObserved() uint32 {
-	if x != nil {
-		return x.FacesObserved
-	}
-	return 0
 }
 
 func (x *PublishFaceIdentificationEvidenceRequest) GetCandidates() []*FaceIdentificationCandidate {
@@ -376,7 +463,7 @@ type PublishFaceIdentificationEvidenceResponse struct {
 
 func (x *PublishFaceIdentificationEvidenceResponse) Reset() {
 	*x = PublishFaceIdentificationEvidenceResponse{}
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[2]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -388,7 +475,7 @@ func (x *PublishFaceIdentificationEvidenceResponse) String() string {
 func (*PublishFaceIdentificationEvidenceResponse) ProtoMessage() {}
 
 func (x *PublishFaceIdentificationEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[2]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -401,7 +488,7 @@ func (x *PublishFaceIdentificationEvidenceResponse) ProtoReflect() protoreflect.
 
 // Deprecated: Use PublishFaceIdentificationEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*PublishFaceIdentificationEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{2}
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *PublishFaceIdentificationEvidenceResponse) GetReceipt() *IdentityEvidenceReceipt {
@@ -417,14 +504,13 @@ type FaceIdentificationCandidate struct {
 	ProfileRef    string                 `protobuf:"bytes,2,opt,name=profile_ref,json=profileRef,proto3" json:"profile_ref,omitempty"`
 	Score         float64                `protobuf:"fixed64,3,opt,name=score,proto3" json:"score,omitempty"`
 	ModelVersion  string                 `protobuf:"bytes,4,opt,name=model_version,json=modelVersion,proto3" json:"model_version,omitempty"`
-	Liveness      FaceLivenessState      `protobuf:"varint,5,opt,name=liveness,proto3,enum=proactive.platform.v1.FaceLivenessState" json:"liveness,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FaceIdentificationCandidate) Reset() {
 	*x = FaceIdentificationCandidate{}
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[3]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -436,7 +522,7 @@ func (x *FaceIdentificationCandidate) String() string {
 func (*FaceIdentificationCandidate) ProtoMessage() {}
 
 func (x *FaceIdentificationCandidate) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[3]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -449,7 +535,7 @@ func (x *FaceIdentificationCandidate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FaceIdentificationCandidate.ProtoReflect.Descriptor instead.
 func (*FaceIdentificationCandidate) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{3}
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *FaceIdentificationCandidate) GetCandidateId() string {
@@ -480,11 +566,100 @@ func (x *FaceIdentificationCandidate) GetModelVersion() string {
 	return ""
 }
 
-func (x *FaceIdentificationCandidate) GetLiveness() FaceLivenessState {
+type PublishFaceLivenessEvidenceRequest struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Metadata      *IdentityEvidenceMetadata `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	State         FaceLivenessState         `protobuf:"varint,2,opt,name=state,proto3,enum=proactive.platform.v1.FaceLivenessState" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishFaceLivenessEvidenceRequest) Reset() {
+	*x = PublishFaceLivenessEvidenceRequest{}
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishFaceLivenessEvidenceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishFaceLivenessEvidenceRequest) ProtoMessage() {}
+
+func (x *PublishFaceLivenessEvidenceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[6]
 	if x != nil {
-		return x.Liveness
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishFaceLivenessEvidenceRequest.ProtoReflect.Descriptor instead.
+func (*PublishFaceLivenessEvidenceRequest) Descriptor() ([]byte, []int) {
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *PublishFaceLivenessEvidenceRequest) GetMetadata() *IdentityEvidenceMetadata {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+func (x *PublishFaceLivenessEvidenceRequest) GetState() FaceLivenessState {
+	if x != nil {
+		return x.State
 	}
 	return FaceLivenessState_FACE_LIVENESS_STATE_UNSPECIFIED
+}
+
+type PublishFaceLivenessEvidenceResponse struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Receipt       *IdentityEvidenceReceipt `protobuf:"bytes,1,opt,name=receipt,proto3" json:"receipt,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishFaceLivenessEvidenceResponse) Reset() {
+	*x = PublishFaceLivenessEvidenceResponse{}
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishFaceLivenessEvidenceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishFaceLivenessEvidenceResponse) ProtoMessage() {}
+
+func (x *PublishFaceLivenessEvidenceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishFaceLivenessEvidenceResponse.ProtoReflect.Descriptor instead.
+func (*PublishFaceLivenessEvidenceResponse) Descriptor() ([]byte, []int) {
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *PublishFaceLivenessEvidenceResponse) GetReceipt() *IdentityEvidenceReceipt {
+	if x != nil {
+		return x.Receipt
+	}
+	return nil
 }
 
 type PublishSpeakerIdentificationEvidenceRequest struct {
@@ -497,7 +672,7 @@ type PublishSpeakerIdentificationEvidenceRequest struct {
 
 func (x *PublishSpeakerIdentificationEvidenceRequest) Reset() {
 	*x = PublishSpeakerIdentificationEvidenceRequest{}
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[4]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -509,7 +684,7 @@ func (x *PublishSpeakerIdentificationEvidenceRequest) String() string {
 func (*PublishSpeakerIdentificationEvidenceRequest) ProtoMessage() {}
 
 func (x *PublishSpeakerIdentificationEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[4]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -522,7 +697,7 @@ func (x *PublishSpeakerIdentificationEvidenceRequest) ProtoReflect() protoreflec
 
 // Deprecated: Use PublishSpeakerIdentificationEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*PublishSpeakerIdentificationEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{4}
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *PublishSpeakerIdentificationEvidenceRequest) GetMetadata() *IdentityEvidenceMetadata {
@@ -548,7 +723,7 @@ type PublishSpeakerIdentificationEvidenceResponse struct {
 
 func (x *PublishSpeakerIdentificationEvidenceResponse) Reset() {
 	*x = PublishSpeakerIdentificationEvidenceResponse{}
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[5]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -560,7 +735,7 @@ func (x *PublishSpeakerIdentificationEvidenceResponse) String() string {
 func (*PublishSpeakerIdentificationEvidenceResponse) ProtoMessage() {}
 
 func (x *PublishSpeakerIdentificationEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[5]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -573,7 +748,7 @@ func (x *PublishSpeakerIdentificationEvidenceResponse) ProtoReflect() protorefle
 
 // Deprecated: Use PublishSpeakerIdentificationEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*PublishSpeakerIdentificationEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{5}
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *PublishSpeakerIdentificationEvidenceResponse) GetReceipt() *IdentityEvidenceReceipt {
@@ -595,7 +770,7 @@ type SpeakerIdentificationCandidate struct {
 
 func (x *SpeakerIdentificationCandidate) Reset() {
 	*x = SpeakerIdentificationCandidate{}
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[6]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -607,7 +782,7 @@ func (x *SpeakerIdentificationCandidate) String() string {
 func (*SpeakerIdentificationCandidate) ProtoMessage() {}
 
 func (x *SpeakerIdentificationCandidate) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[6]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -620,7 +795,7 @@ func (x *SpeakerIdentificationCandidate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpeakerIdentificationCandidate.ProtoReflect.Descriptor instead.
 func (*SpeakerIdentificationCandidate) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{6}
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SpeakerIdentificationCandidate) GetCandidateId() string {
@@ -666,7 +841,7 @@ type PublishSpeakerVerificationEvidenceRequest struct {
 
 func (x *PublishSpeakerVerificationEvidenceRequest) Reset() {
 	*x = PublishSpeakerVerificationEvidenceRequest{}
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[7]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -678,7 +853,7 @@ func (x *PublishSpeakerVerificationEvidenceRequest) String() string {
 func (*PublishSpeakerVerificationEvidenceRequest) ProtoMessage() {}
 
 func (x *PublishSpeakerVerificationEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[7]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -691,7 +866,7 @@ func (x *PublishSpeakerVerificationEvidenceRequest) ProtoReflect() protoreflect.
 
 // Deprecated: Use PublishSpeakerVerificationEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*PublishSpeakerVerificationEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{7}
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *PublishSpeakerVerificationEvidenceRequest) GetMetadata() *IdentityEvidenceMetadata {
@@ -738,7 +913,7 @@ type PublishSpeakerVerificationEvidenceResponse struct {
 
 func (x *PublishSpeakerVerificationEvidenceResponse) Reset() {
 	*x = PublishSpeakerVerificationEvidenceResponse{}
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[8]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -750,7 +925,7 @@ func (x *PublishSpeakerVerificationEvidenceResponse) String() string {
 func (*PublishSpeakerVerificationEvidenceResponse) ProtoMessage() {}
 
 func (x *PublishSpeakerVerificationEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[8]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -763,7 +938,7 @@ func (x *PublishSpeakerVerificationEvidenceResponse) ProtoReflect() protoreflect
 
 // Deprecated: Use PublishSpeakerVerificationEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*PublishSpeakerVerificationEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{8}
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PublishSpeakerVerificationEvidenceResponse) GetReceipt() *IdentityEvidenceReceipt {
@@ -787,7 +962,7 @@ type IdentityEvidenceReceipt struct {
 
 func (x *IdentityEvidenceReceipt) Reset() {
 	*x = IdentityEvidenceReceipt{}
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[9]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -799,7 +974,7 @@ func (x *IdentityEvidenceReceipt) String() string {
 func (*IdentityEvidenceReceipt) ProtoMessage() {}
 
 func (x *IdentityEvidenceReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_identity_proto_msgTypes[9]
+	mi := &file_proactive_platform_v1_identity_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -812,7 +987,7 @@ func (x *IdentityEvidenceReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IdentityEvidenceReceipt.ProtoReflect.Descriptor instead.
 func (*IdentityEvidenceReceipt) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{9}
+	return file_proactive_platform_v1_identity_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *IdentityEvidenceReceipt) GetFragmentId() string {
@@ -852,22 +1027,30 @@ const file_proactive_platform_v1_identity_proto_rawDesc = "" +
 	"occurredAt\x12+\n" +
 	"\x03ttl\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\x12\x19\n" +
 	"\btrace_id\x18\a \x01(\tR\atraceId\x12,\n" +
-	"\x12evidence_window_id\x18\b \x01(\tR\x10evidenceWindowId\"\xf2\x01\n" +
-	"(PublishFaceIdentificationEvidenceRequest\x12K\n" +
+	"\x12evidence_window_id\x18\b \x01(\tR\x10evidenceWindowId\"\x99\x01\n" +
+	"#PublishFaceDetectionEvidenceRequest\x12K\n" +
 	"\bmetadata\x18\x01 \x01(\v2/.proactive.platform.v1.IdentityEvidenceMetadataR\bmetadata\x12%\n" +
-	"\x0efaces_observed\x18\x02 \x01(\rR\rfacesObserved\x12R\n" +
+	"\x0efaces_observed\x18\x02 \x01(\rR\rfacesObserved\"p\n" +
+	"$PublishFaceDetectionEvidenceResponse\x12H\n" +
+	"\areceipt\x18\x01 \x01(\v2..proactive.platform.v1.IdentityEvidenceReceiptR\areceipt\"\xd1\x01\n" +
+	"(PublishFaceIdentificationEvidenceRequest\x12K\n" +
+	"\bmetadata\x18\x01 \x01(\v2/.proactive.platform.v1.IdentityEvidenceMetadataR\bmetadata\x12R\n" +
 	"\n" +
 	"candidates\x18\x03 \x03(\v22.proactive.platform.v1.FaceIdentificationCandidateR\n" +
-	"candidates\"u\n" +
+	"candidatesJ\x04\b\x02\x10\x03\"u\n" +
 	")PublishFaceIdentificationEvidenceResponse\x12H\n" +
-	"\areceipt\x18\x01 \x01(\v2..proactive.platform.v1.IdentityEvidenceReceiptR\areceipt\"\xe2\x01\n" +
+	"\areceipt\x18\x01 \x01(\v2..proactive.platform.v1.IdentityEvidenceReceiptR\areceipt\"\xa2\x01\n" +
 	"\x1bFaceIdentificationCandidate\x12!\n" +
 	"\fcandidate_id\x18\x01 \x01(\tR\vcandidateId\x12\x1f\n" +
 	"\vprofile_ref\x18\x02 \x01(\tR\n" +
 	"profileRef\x12\x14\n" +
 	"\x05score\x18\x03 \x01(\x01R\x05score\x12#\n" +
-	"\rmodel_version\x18\x04 \x01(\tR\fmodelVersion\x12D\n" +
-	"\bliveness\x18\x05 \x01(\x0e2(.proactive.platform.v1.FaceLivenessStateR\bliveness\"\xd1\x01\n" +
+	"\rmodel_version\x18\x04 \x01(\tR\fmodelVersionJ\x04\b\x05\x10\x06\"\xb1\x01\n" +
+	"\"PublishFaceLivenessEvidenceRequest\x12K\n" +
+	"\bmetadata\x18\x01 \x01(\v2/.proactive.platform.v1.IdentityEvidenceMetadataR\bmetadata\x12>\n" +
+	"\x05state\x18\x02 \x01(\x0e2(.proactive.platform.v1.FaceLivenessStateR\x05state\"o\n" +
+	"#PublishFaceLivenessEvidenceResponse\x12H\n" +
+	"\areceipt\x18\x01 \x01(\v2..proactive.platform.v1.IdentityEvidenceReceiptR\areceipt\"\xd1\x01\n" +
 	"+PublishSpeakerIdentificationEvidenceRequest\x12K\n" +
 	"\bmetadata\x18\x01 \x01(\v2/.proactive.platform.v1.IdentityEvidenceMetadataR\bmetadata\x12U\n" +
 	"\n" +
@@ -913,9 +1096,11 @@ const file_proactive_platform_v1_identity_proto_rawDesc = "" +
 	"&IDENTITY_EVIDENCE_RECEIPT_REASON_STALE\x10\x04\x123\n" +
 	"/IDENTITY_EVIDENCE_RECEIPT_REASON_LEASE_REJECTED\x10\x05\x12:\n" +
 	"6IDENTITY_EVIDENCE_RECEIPT_REASON_PROVIDER_NOT_SELECTED\x10\x06\x124\n" +
-	"0IDENTITY_EVIDENCE_RECEIPT_REASON_POLICY_REJECTED\x10\a2\xa7\x04\n" +
-	"\x1eIdentityEvidenceIngressService\x12\xa6\x01\n" +
-	"!PublishFaceIdentificationEvidence\x12?.proactive.platform.v1.PublishFaceIdentificationEvidenceRequest\x1a@.proactive.platform.v1.PublishFaceIdentificationEvidenceResponse\x12\xaf\x01\n" +
+	"0IDENTITY_EVIDENCE_RECEIPT_REASON_POLICY_REJECTED\x10\a2\xd8\x06\n" +
+	"\x1eIdentityEvidenceIngressService\x12\x97\x01\n" +
+	"\x1cPublishFaceDetectionEvidence\x12:.proactive.platform.v1.PublishFaceDetectionEvidenceRequest\x1a;.proactive.platform.v1.PublishFaceDetectionEvidenceResponse\x12\xa6\x01\n" +
+	"!PublishFaceIdentificationEvidence\x12?.proactive.platform.v1.PublishFaceIdentificationEvidenceRequest\x1a@.proactive.platform.v1.PublishFaceIdentificationEvidenceResponse\x12\x94\x01\n" +
+	"\x1bPublishFaceLivenessEvidence\x129.proactive.platform.v1.PublishFaceLivenessEvidenceRequest\x1a:.proactive.platform.v1.PublishFaceLivenessEvidenceResponse\x12\xaf\x01\n" +
 	"$PublishSpeakerIdentificationEvidence\x12B.proactive.platform.v1.PublishSpeakerIdentificationEvidenceRequest\x1aC.proactive.platform.v1.PublishSpeakerIdentificationEvidenceResponse\x12\xa9\x01\n" +
 	"\"PublishSpeakerVerificationEvidence\x12@.proactive.platform.v1.PublishSpeakerVerificationEvidenceRequest\x1aA.proactive.platform.v1.PublishSpeakerVerificationEvidenceResponseBFZDproactive-interaction-engine/gen/go/proactive/platform/v1;platformv1b\x06proto3"
 
@@ -932,49 +1117,61 @@ func file_proactive_platform_v1_identity_proto_rawDescGZIP() []byte {
 }
 
 var file_proactive_platform_v1_identity_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_proactive_platform_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_proactive_platform_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_proactive_platform_v1_identity_proto_goTypes = []any{
 	(FaceLivenessState)(0),                               // 0: proactive.platform.v1.FaceLivenessState
 	(IdentityEvidenceReceiptStatus)(0),                   // 1: proactive.platform.v1.IdentityEvidenceReceiptStatus
 	(IdentityEvidenceReceiptReason)(0),                   // 2: proactive.platform.v1.IdentityEvidenceReceiptReason
 	(*IdentityEvidenceMetadata)(nil),                     // 3: proactive.platform.v1.IdentityEvidenceMetadata
-	(*PublishFaceIdentificationEvidenceRequest)(nil),     // 4: proactive.platform.v1.PublishFaceIdentificationEvidenceRequest
-	(*PublishFaceIdentificationEvidenceResponse)(nil),    // 5: proactive.platform.v1.PublishFaceIdentificationEvidenceResponse
-	(*FaceIdentificationCandidate)(nil),                  // 6: proactive.platform.v1.FaceIdentificationCandidate
-	(*PublishSpeakerIdentificationEvidenceRequest)(nil),  // 7: proactive.platform.v1.PublishSpeakerIdentificationEvidenceRequest
-	(*PublishSpeakerIdentificationEvidenceResponse)(nil), // 8: proactive.platform.v1.PublishSpeakerIdentificationEvidenceResponse
-	(*SpeakerIdentificationCandidate)(nil),               // 9: proactive.platform.v1.SpeakerIdentificationCandidate
-	(*PublishSpeakerVerificationEvidenceRequest)(nil),    // 10: proactive.platform.v1.PublishSpeakerVerificationEvidenceRequest
-	(*PublishSpeakerVerificationEvidenceResponse)(nil),   // 11: proactive.platform.v1.PublishSpeakerVerificationEvidenceResponse
-	(*IdentityEvidenceReceipt)(nil),                      // 12: proactive.platform.v1.IdentityEvidenceReceipt
-	(*timestamppb.Timestamp)(nil),                        // 13: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),                          // 14: google.protobuf.Duration
+	(*PublishFaceDetectionEvidenceRequest)(nil),          // 4: proactive.platform.v1.PublishFaceDetectionEvidenceRequest
+	(*PublishFaceDetectionEvidenceResponse)(nil),         // 5: proactive.platform.v1.PublishFaceDetectionEvidenceResponse
+	(*PublishFaceIdentificationEvidenceRequest)(nil),     // 6: proactive.platform.v1.PublishFaceIdentificationEvidenceRequest
+	(*PublishFaceIdentificationEvidenceResponse)(nil),    // 7: proactive.platform.v1.PublishFaceIdentificationEvidenceResponse
+	(*FaceIdentificationCandidate)(nil),                  // 8: proactive.platform.v1.FaceIdentificationCandidate
+	(*PublishFaceLivenessEvidenceRequest)(nil),           // 9: proactive.platform.v1.PublishFaceLivenessEvidenceRequest
+	(*PublishFaceLivenessEvidenceResponse)(nil),          // 10: proactive.platform.v1.PublishFaceLivenessEvidenceResponse
+	(*PublishSpeakerIdentificationEvidenceRequest)(nil),  // 11: proactive.platform.v1.PublishSpeakerIdentificationEvidenceRequest
+	(*PublishSpeakerIdentificationEvidenceResponse)(nil), // 12: proactive.platform.v1.PublishSpeakerIdentificationEvidenceResponse
+	(*SpeakerIdentificationCandidate)(nil),               // 13: proactive.platform.v1.SpeakerIdentificationCandidate
+	(*PublishSpeakerVerificationEvidenceRequest)(nil),    // 14: proactive.platform.v1.PublishSpeakerVerificationEvidenceRequest
+	(*PublishSpeakerVerificationEvidenceResponse)(nil),   // 15: proactive.platform.v1.PublishSpeakerVerificationEvidenceResponse
+	(*IdentityEvidenceReceipt)(nil),                      // 16: proactive.platform.v1.IdentityEvidenceReceipt
+	(*timestamppb.Timestamp)(nil),                        // 17: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),                          // 18: google.protobuf.Duration
 }
 var file_proactive_platform_v1_identity_proto_depIdxs = []int32{
-	13, // 0: proactive.platform.v1.IdentityEvidenceMetadata.occurred_at:type_name -> google.protobuf.Timestamp
-	14, // 1: proactive.platform.v1.IdentityEvidenceMetadata.ttl:type_name -> google.protobuf.Duration
-	3,  // 2: proactive.platform.v1.PublishFaceIdentificationEvidenceRequest.metadata:type_name -> proactive.platform.v1.IdentityEvidenceMetadata
-	6,  // 3: proactive.platform.v1.PublishFaceIdentificationEvidenceRequest.candidates:type_name -> proactive.platform.v1.FaceIdentificationCandidate
-	12, // 4: proactive.platform.v1.PublishFaceIdentificationEvidenceResponse.receipt:type_name -> proactive.platform.v1.IdentityEvidenceReceipt
-	0,  // 5: proactive.platform.v1.FaceIdentificationCandidate.liveness:type_name -> proactive.platform.v1.FaceLivenessState
-	3,  // 6: proactive.platform.v1.PublishSpeakerIdentificationEvidenceRequest.metadata:type_name -> proactive.platform.v1.IdentityEvidenceMetadata
-	9,  // 7: proactive.platform.v1.PublishSpeakerIdentificationEvidenceRequest.candidates:type_name -> proactive.platform.v1.SpeakerIdentificationCandidate
-	12, // 8: proactive.platform.v1.PublishSpeakerIdentificationEvidenceResponse.receipt:type_name -> proactive.platform.v1.IdentityEvidenceReceipt
-	3,  // 9: proactive.platform.v1.PublishSpeakerVerificationEvidenceRequest.metadata:type_name -> proactive.platform.v1.IdentityEvidenceMetadata
-	12, // 10: proactive.platform.v1.PublishSpeakerVerificationEvidenceResponse.receipt:type_name -> proactive.platform.v1.IdentityEvidenceReceipt
-	1,  // 11: proactive.platform.v1.IdentityEvidenceReceipt.status:type_name -> proactive.platform.v1.IdentityEvidenceReceiptStatus
-	2,  // 12: proactive.platform.v1.IdentityEvidenceReceipt.reason:type_name -> proactive.platform.v1.IdentityEvidenceReceiptReason
-	4,  // 13: proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceIdentificationEvidence:input_type -> proactive.platform.v1.PublishFaceIdentificationEvidenceRequest
-	7,  // 14: proactive.platform.v1.IdentityEvidenceIngressService.PublishSpeakerIdentificationEvidence:input_type -> proactive.platform.v1.PublishSpeakerIdentificationEvidenceRequest
-	10, // 15: proactive.platform.v1.IdentityEvidenceIngressService.PublishSpeakerVerificationEvidence:input_type -> proactive.platform.v1.PublishSpeakerVerificationEvidenceRequest
-	5,  // 16: proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceIdentificationEvidence:output_type -> proactive.platform.v1.PublishFaceIdentificationEvidenceResponse
-	8,  // 17: proactive.platform.v1.IdentityEvidenceIngressService.PublishSpeakerIdentificationEvidence:output_type -> proactive.platform.v1.PublishSpeakerIdentificationEvidenceResponse
-	11, // 18: proactive.platform.v1.IdentityEvidenceIngressService.PublishSpeakerVerificationEvidence:output_type -> proactive.platform.v1.PublishSpeakerVerificationEvidenceResponse
-	16, // [16:19] is the sub-list for method output_type
-	13, // [13:16] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	17, // 0: proactive.platform.v1.IdentityEvidenceMetadata.occurred_at:type_name -> google.protobuf.Timestamp
+	18, // 1: proactive.platform.v1.IdentityEvidenceMetadata.ttl:type_name -> google.protobuf.Duration
+	3,  // 2: proactive.platform.v1.PublishFaceDetectionEvidenceRequest.metadata:type_name -> proactive.platform.v1.IdentityEvidenceMetadata
+	16, // 3: proactive.platform.v1.PublishFaceDetectionEvidenceResponse.receipt:type_name -> proactive.platform.v1.IdentityEvidenceReceipt
+	3,  // 4: proactive.platform.v1.PublishFaceIdentificationEvidenceRequest.metadata:type_name -> proactive.platform.v1.IdentityEvidenceMetadata
+	8,  // 5: proactive.platform.v1.PublishFaceIdentificationEvidenceRequest.candidates:type_name -> proactive.platform.v1.FaceIdentificationCandidate
+	16, // 6: proactive.platform.v1.PublishFaceIdentificationEvidenceResponse.receipt:type_name -> proactive.platform.v1.IdentityEvidenceReceipt
+	3,  // 7: proactive.platform.v1.PublishFaceLivenessEvidenceRequest.metadata:type_name -> proactive.platform.v1.IdentityEvidenceMetadata
+	0,  // 8: proactive.platform.v1.PublishFaceLivenessEvidenceRequest.state:type_name -> proactive.platform.v1.FaceLivenessState
+	16, // 9: proactive.platform.v1.PublishFaceLivenessEvidenceResponse.receipt:type_name -> proactive.platform.v1.IdentityEvidenceReceipt
+	3,  // 10: proactive.platform.v1.PublishSpeakerIdentificationEvidenceRequest.metadata:type_name -> proactive.platform.v1.IdentityEvidenceMetadata
+	13, // 11: proactive.platform.v1.PublishSpeakerIdentificationEvidenceRequest.candidates:type_name -> proactive.platform.v1.SpeakerIdentificationCandidate
+	16, // 12: proactive.platform.v1.PublishSpeakerIdentificationEvidenceResponse.receipt:type_name -> proactive.platform.v1.IdentityEvidenceReceipt
+	3,  // 13: proactive.platform.v1.PublishSpeakerVerificationEvidenceRequest.metadata:type_name -> proactive.platform.v1.IdentityEvidenceMetadata
+	16, // 14: proactive.platform.v1.PublishSpeakerVerificationEvidenceResponse.receipt:type_name -> proactive.platform.v1.IdentityEvidenceReceipt
+	1,  // 15: proactive.platform.v1.IdentityEvidenceReceipt.status:type_name -> proactive.platform.v1.IdentityEvidenceReceiptStatus
+	2,  // 16: proactive.platform.v1.IdentityEvidenceReceipt.reason:type_name -> proactive.platform.v1.IdentityEvidenceReceiptReason
+	4,  // 17: proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceDetectionEvidence:input_type -> proactive.platform.v1.PublishFaceDetectionEvidenceRequest
+	6,  // 18: proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceIdentificationEvidence:input_type -> proactive.platform.v1.PublishFaceIdentificationEvidenceRequest
+	9,  // 19: proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceLivenessEvidence:input_type -> proactive.platform.v1.PublishFaceLivenessEvidenceRequest
+	11, // 20: proactive.platform.v1.IdentityEvidenceIngressService.PublishSpeakerIdentificationEvidence:input_type -> proactive.platform.v1.PublishSpeakerIdentificationEvidenceRequest
+	14, // 21: proactive.platform.v1.IdentityEvidenceIngressService.PublishSpeakerVerificationEvidence:input_type -> proactive.platform.v1.PublishSpeakerVerificationEvidenceRequest
+	5,  // 22: proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceDetectionEvidence:output_type -> proactive.platform.v1.PublishFaceDetectionEvidenceResponse
+	7,  // 23: proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceIdentificationEvidence:output_type -> proactive.platform.v1.PublishFaceIdentificationEvidenceResponse
+	10, // 24: proactive.platform.v1.IdentityEvidenceIngressService.PublishFaceLivenessEvidence:output_type -> proactive.platform.v1.PublishFaceLivenessEvidenceResponse
+	12, // 25: proactive.platform.v1.IdentityEvidenceIngressService.PublishSpeakerIdentificationEvidence:output_type -> proactive.platform.v1.PublishSpeakerIdentificationEvidenceResponse
+	15, // 26: proactive.platform.v1.IdentityEvidenceIngressService.PublishSpeakerVerificationEvidence:output_type -> proactive.platform.v1.PublishSpeakerVerificationEvidenceResponse
+	22, // [22:27] is the sub-list for method output_type
+	17, // [17:22] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_proactive_platform_v1_identity_proto_init() }
@@ -988,7 +1185,7 @@ func file_proactive_platform_v1_identity_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proactive_platform_v1_identity_proto_rawDesc), len(file_proactive_platform_v1_identity_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   10,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

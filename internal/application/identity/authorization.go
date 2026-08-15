@@ -29,7 +29,7 @@ func ResolveAuthorizedAt(
 	if err != nil {
 		return Resolution{}, err
 	}
-	for _, required := range requiredPermissions(policy, evidence) {
+	for _, required := range requiredPermissions(evidence) {
 		if _, ok := enabled[required]; !ok {
 			return authorizationAnonymous(policy, ReasonBiometricPermissionMissing), nil
 		}
@@ -51,14 +51,20 @@ func ResolveAuthorizedAt(
 			modelVersionMismatch = true
 		}
 	}
-	for _, candidate := range evidence.FaceIdentifications {
-		check(candidate.ProfileRef, readiness.FaceIdentification, candidate.ModelVersion)
+	if evidence.FaceIdentification != nil {
+		for _, candidate := range evidence.FaceIdentification.Candidates {
+			check(candidate.ProfileRef, readiness.FaceIdentification, candidate.ModelVersion)
+		}
 	}
-	for _, candidate := range evidence.SpeakerIdentifications {
-		check(candidate.ProfileRef, readiness.SpeakerIdentification, candidate.ModelVersion)
+	if evidence.SpeakerIdentification != nil {
+		for _, candidate := range evidence.SpeakerIdentification.Candidates {
+			check(candidate.ProfileRef, readiness.SpeakerIdentification, candidate.ModelVersion)
+		}
 	}
-	for _, candidate := range evidence.SpeakerVerifications {
-		check(candidate.ProfileRef, readiness.SpeakerVerification, candidate.ModelVersion)
+	if evidence.SpeakerVerification != nil {
+		for _, candidate := range evidence.SpeakerVerification.Candidates {
+			check(candidate.ProfileRef, readiness.SpeakerVerification, candidate.ModelVersion)
+		}
 	}
 	if enrollmentUnavailable {
 		return authorizationAnonymous(policy, ReasonEnrollmentUnavailable), nil
@@ -97,25 +103,27 @@ func enabledPermissions(snapshot privacy.Snapshot) (map[privacy.Permission]struc
 	return enabled, nil
 }
 
-func requiredPermissions(policy Policy, evidence Evidence) []privacy.Permission {
+func requiredPermissions(evidence Evidence) []privacy.Permission {
 	required := make(map[privacy.Permission]struct{})
-	if len(evidence.FaceIdentifications) > 0 {
+	if evidence.FaceDetection != nil {
+		required[privacy.CameraCapture] = struct{}{}
+		required[privacy.FaceDetection] = struct{}{}
+	}
+	if evidence.FaceIdentification != nil {
 		required[privacy.CameraCapture] = struct{}{}
 		required[privacy.FaceDetection] = struct{}{}
 		required[privacy.FaceIdentification] = struct{}{}
-		usesLiveness := policy.RequireFaceLiveness
-		for _, candidate := range evidence.FaceIdentifications {
-			usesLiveness = usesLiveness || candidate.Liveness != LivenessUnknown
-		}
-		if usesLiveness {
-			required[privacy.FaceLiveness] = struct{}{}
-		}
 	}
-	if len(evidence.SpeakerIdentifications) > 0 {
+	if evidence.FaceLiveness != nil {
+		required[privacy.CameraCapture] = struct{}{}
+		required[privacy.FaceDetection] = struct{}{}
+		required[privacy.FaceLiveness] = struct{}{}
+	}
+	if evidence.SpeakerIdentification != nil {
 		required[privacy.MicrophoneCapture] = struct{}{}
 		required[privacy.SpeakerIdentification] = struct{}{}
 	}
-	if len(evidence.SpeakerVerifications) > 0 {
+	if evidence.SpeakerVerification != nil {
 		required[privacy.MicrophoneCapture] = struct{}{}
 		required[privacy.SpeakerVerification] = struct{}{}
 	}

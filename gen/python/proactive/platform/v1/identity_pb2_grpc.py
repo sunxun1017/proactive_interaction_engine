@@ -6,7 +6,9 @@ from proactive.platform.v1 import identity_pb2 as proactive_dot_platform_dot_v1_
 
 
 class IdentityEvidenceIngressServiceStub(object):
-    """IdentityEvidenceIngressService accepts only biometric candidate fragments.
+    """IdentityEvidenceIngressService accepts only strongly typed biometric evidence
+    fragments. Face detection, identification and liveness remain independent
+    capability and lease boundaries.
     Acceptance is not a trusted identity result. A bounded application-owned
     coordinator validates and groups fragments, then resolves exactly once only
     after the issued evidence window closes. A handler must never resolve or
@@ -19,10 +21,20 @@ class IdentityEvidenceIngressServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
+        self.PublishFaceDetectionEvidence = channel.unary_unary(
+                '/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceDetectionEvidence',
+                request_serializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceDetectionEvidenceRequest.SerializeToString,
+                response_deserializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceDetectionEvidenceResponse.FromString,
+                _registered_method=True)
         self.PublishFaceIdentificationEvidence = channel.unary_unary(
                 '/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceIdentificationEvidence',
                 request_serializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceIdentificationEvidenceRequest.SerializeToString,
                 response_deserializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceIdentificationEvidenceResponse.FromString,
+                _registered_method=True)
+        self.PublishFaceLivenessEvidence = channel.unary_unary(
+                '/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceLivenessEvidence',
+                request_serializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceLivenessEvidenceRequest.SerializeToString,
+                response_deserializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceLivenessEvidenceResponse.FromString,
                 _registered_method=True)
         self.PublishSpeakerIdentificationEvidence = channel.unary_unary(
                 '/proactive.platform.v1.IdentityEvidenceIngressService/PublishSpeakerIdentificationEvidence',
@@ -37,14 +49,28 @@ class IdentityEvidenceIngressServiceStub(object):
 
 
 class IdentityEvidenceIngressServiceServicer(object):
-    """IdentityEvidenceIngressService accepts only biometric candidate fragments.
+    """IdentityEvidenceIngressService accepts only strongly typed biometric evidence
+    fragments. Face detection, identification and liveness remain independent
+    capability and lease boundaries.
     Acceptance is not a trusted identity result. A bounded application-owned
     coordinator validates and groups fragments, then resolves exactly once only
     after the issued evidence window closes. A handler must never resolve or
     publish identity from one arriving fragment.
     """
 
+    def PublishFaceDetectionEvidence(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def PublishFaceIdentificationEvidence(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PublishFaceLivenessEvidence(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -65,10 +91,20 @@ class IdentityEvidenceIngressServiceServicer(object):
 
 def add_IdentityEvidenceIngressServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'PublishFaceDetectionEvidence': grpc.unary_unary_rpc_method_handler(
+                    servicer.PublishFaceDetectionEvidence,
+                    request_deserializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceDetectionEvidenceRequest.FromString,
+                    response_serializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceDetectionEvidenceResponse.SerializeToString,
+            ),
             'PublishFaceIdentificationEvidence': grpc.unary_unary_rpc_method_handler(
                     servicer.PublishFaceIdentificationEvidence,
                     request_deserializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceIdentificationEvidenceRequest.FromString,
                     response_serializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceIdentificationEvidenceResponse.SerializeToString,
+            ),
+            'PublishFaceLivenessEvidence': grpc.unary_unary_rpc_method_handler(
+                    servicer.PublishFaceLivenessEvidence,
+                    request_deserializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceLivenessEvidenceRequest.FromString,
+                    response_serializer=proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceLivenessEvidenceResponse.SerializeToString,
             ),
             'PublishSpeakerIdentificationEvidence': grpc.unary_unary_rpc_method_handler(
                     servicer.PublishSpeakerIdentificationEvidence,
@@ -89,12 +125,41 @@ def add_IdentityEvidenceIngressServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class IdentityEvidenceIngressService(object):
-    """IdentityEvidenceIngressService accepts only biometric candidate fragments.
+    """IdentityEvidenceIngressService accepts only strongly typed biometric evidence
+    fragments. Face detection, identification and liveness remain independent
+    capability and lease boundaries.
     Acceptance is not a trusted identity result. A bounded application-owned
     coordinator validates and groups fragments, then resolves exactly once only
     after the issued evidence window closes. A handler must never resolve or
     publish identity from one arriving fragment.
     """
+
+    @staticmethod
+    def PublishFaceDetectionEvidence(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceDetectionEvidence',
+            proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceDetectionEvidenceRequest.SerializeToString,
+            proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceDetectionEvidenceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def PublishFaceIdentificationEvidence(request,
@@ -113,6 +178,33 @@ class IdentityEvidenceIngressService(object):
             '/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceIdentificationEvidence',
             proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceIdentificationEvidenceRequest.SerializeToString,
             proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceIdentificationEvidenceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PublishFaceLivenessEvidence(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/proactive.platform.v1.IdentityEvidenceIngressService/PublishFaceLivenessEvidence',
+            proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceLivenessEvidenceRequest.SerializeToString,
+            proactive_dot_platform_dot_v1_dot_identity__pb2.PublishFaceLivenessEvidenceResponse.FromString,
             options,
             channel_credentials,
             insecure,

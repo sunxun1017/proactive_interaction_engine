@@ -7,19 +7,23 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "proactive-interaction-engine/gen/go/proactive/platform/v1;platformv1";
 
-// IdentityEvidenceIngressService accepts only biometric candidate fragments.
+// IdentityEvidenceIngressService accepts only strongly typed biometric evidence
+// fragments. Face detection, identification and liveness remain independent
+// capability and lease boundaries.
 // Acceptance is not a trusted identity result. A bounded application-owned
 // coordinator validates and groups fragments, then resolves exactly once only
 // after the issued evidence window closes. A handler must never resolve or
 // publish identity from one arriving fragment.
 service IdentityEvidenceIngressService {
+  rpc PublishFaceDetectionEvidence(PublishFaceDetectionEvidenceRequest) returns (PublishFaceDetectionEvidenceResponse);
   rpc PublishFaceIdentificationEvidence(PublishFaceIdentificationEvidenceRequest) returns (PublishFaceIdentificationEvidenceResponse);
+  rpc PublishFaceLivenessEvidence(PublishFaceLivenessEvidenceRequest) returns (PublishFaceLivenessEvidenceResponse);
   rpc PublishSpeakerIdentificationEvidence(PublishSpeakerIdentificationEvidenceRequest) returns (PublishSpeakerIdentificationEvidenceResponse);
   rpc PublishSpeakerVerificationEvidence(PublishSpeakerVerificationEvidenceRequest) returns (PublishSpeakerVerificationEvidenceResponse);
 }
 
 // IdentityEvidenceMetadata is transport and lease metadata shared by the
-// three strongly typed RPCs. It contains no media, embedding or template.
+// strongly typed evidence RPCs. It contains no media, embedding or template.
 message IdentityEvidenceMetadata {
   string fragment_id = 1;
   string provider_lease_id = 2;
@@ -34,11 +38,19 @@ message IdentityEvidenceMetadata {
   string evidence_window_id = 8;
 }
 
+message PublishFaceDetectionEvidenceRequest {
+  IdentityEvidenceMetadata metadata = 1;
+  // Zero is an explicit successful detection result with no observed face.
+  uint32 faces_observed = 2;
+}
+
+message PublishFaceDetectionEvidenceResponse {
+  IdentityEvidenceReceipt receipt = 1;
+}
+
 message PublishFaceIdentificationEvidenceRequest {
   IdentityEvidenceMetadata metadata = 1;
-  // Number of people observed in the frame used for this evidence. Values
-  // above one force anonymous resolution even if one candidate scores highly.
-  uint32 faces_observed = 2;
+  reserved 2;
   repeated FaceIdentificationCandidate candidates = 3;
 }
 
@@ -51,7 +63,7 @@ message FaceIdentificationCandidate {
   string profile_ref = 2;
   double score = 3;
   string model_version = 4;
-  FaceLivenessState liveness = 5;
+  reserved 5;
 }
 
 enum FaceLivenessState {
@@ -60,6 +72,15 @@ enum FaceLivenessState {
   FACE_LIVENESS_STATE_UNKNOWN = 1;
   FACE_LIVENESS_STATE_PASSED = 2;
   FACE_LIVENESS_STATE_FAILED = 3;
+}
+
+message PublishFaceLivenessEvidenceRequest {
+  IdentityEvidenceMetadata metadata = 1;
+  FaceLivenessState state = 2;
+}
+
+message PublishFaceLivenessEvidenceResponse {
+  IdentityEvidenceReceipt receipt = 1;
 }
 
 message PublishSpeakerIdentificationEvidenceRequest {

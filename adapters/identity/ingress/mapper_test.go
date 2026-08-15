@@ -20,10 +20,9 @@ import (
 func TestMapFaceIdentificationEvidence(t *testing.T) {
 	now := mapperNow()
 	request := &platformv1.PublishFaceIdentificationEvidenceRequest{
-		Metadata:      validMetadata(now),
-		FacesObserved: 1,
+		Metadata: validMetadata(now),
 		Candidates: []*platformv1.FaceIdentificationCandidate{
-			{CandidateId: "face-1", ProfileRef: "profile-a", Score: 0.91, ModelVersion: "face.v1", Liveness: platformv1.FaceLivenessState_FACE_LIVENESS_STATE_PASSED},
+			{CandidateId: "face-1", ProfileRef: "profile-a", Score: 0.91, ModelVersion: "face.v1"},
 		},
 	}
 	mapped, err := mapFaceIdentification(request, now)
@@ -33,23 +32,53 @@ func TestMapFaceIdentificationEvidence(t *testing.T) {
 	if mapped.capability != readiness.FaceIdentification || mapped.metadata.fragmentID != "fragment-1" || mapped.metadata.evidenceWindowID != "window-1" || mapped.metadata.providerLeaseID != "lease-1" || mapped.metadata.sourceInstanceID != "face-instance" || mapped.metadata.sourceSeq != 7 || mapped.metadata.traceID != "trace-1" {
 		t.Fatalf("mapped metadata = %#v", mapped)
 	}
-	wantCapabilities := []readiness.CapabilityKind{
-		readiness.FaceIdentification,
-		readiness.FaceDetection,
-		readiness.FaceLiveness,
-	}
-	if !reflect.DeepEqual(mapped.requiredCapabilities, wantCapabilities) {
-		t.Fatalf("required capabilities = %v, want %v", mapped.requiredCapabilities, wantCapabilities)
-	}
 	if mapped.metadata.occurredAt != now.Add(-time.Second) || mapped.metadata.expiresAt != now.Add(time.Second) {
 		t.Fatalf("mapped timing = %#v", mapped.metadata)
 	}
-	want := identity.Evidence{FacesObserved: 1, FaceIdentifications: []identity.FaceIdentificationCandidate{{
+	want := []identity.FaceIdentificationCandidate{{
 		ID: "face-1", ProfileRef: "profile-a", Score: 0.91,
-		ModelVersion: "face.v1", OccurredAt: now.Add(-time.Second), Liveness: identity.LivenessPassed,
-	}}}
-	if !reflect.DeepEqual(mapped.evidence, want) {
-		t.Fatalf("mapped evidence = %#v, want %#v", mapped.evidence, want)
+		ModelVersion: "face.v1",
+	}}
+	if !reflect.DeepEqual(mapped.candidates, want) {
+		t.Fatalf("mapped candidates = %#v, want %#v", mapped.candidates, want)
+	}
+}
+
+func TestMapFaceDetectionEvidenceKeepsZeroAndMultipleCounts(t *testing.T) {
+	now := mapperNow()
+	for _, count := range []uint32{0, 2} {
+		request := &platformv1.PublishFaceDetectionEvidenceRequest{
+			Metadata: validMetadata(now), FacesObserved: count,
+		}
+		mapped, err := mapFaceDetection(request, now)
+		if err != nil {
+			t.Fatalf("mapFaceDetection(%d) error = %v", count, err)
+		}
+		if mapped.capability != readiness.FaceDetection || mapped.facesObserved != count || mapped.metadata.fragmentID != "fragment-1" {
+			t.Fatalf("mapFaceDetection(%d) = %#v", count, mapped)
+		}
+	}
+}
+
+func TestMapFaceLivenessEvidence(t *testing.T) {
+	now := mapperNow()
+	tests := []struct {
+		wire platformv1.FaceLivenessState
+		want identity.Liveness
+	}{
+		{wire: platformv1.FaceLivenessState_FACE_LIVENESS_STATE_UNKNOWN, want: identity.LivenessUnknown},
+		{wire: platformv1.FaceLivenessState_FACE_LIVENESS_STATE_PASSED, want: identity.LivenessPassed},
+		{wire: platformv1.FaceLivenessState_FACE_LIVENESS_STATE_FAILED, want: identity.LivenessFailed},
+	}
+	for _, test := range tests {
+		request := &platformv1.PublishFaceLivenessEvidenceRequest{Metadata: validMetadata(now), State: test.wire}
+		mapped, err := mapFaceLiveness(request, now)
+		if err != nil {
+			t.Fatalf("mapFaceLiveness(%s) error = %v", test.wire, err)
+		}
+		if mapped.capability != readiness.FaceLiveness || mapped.state != test.want {
+			t.Fatalf("mapFaceLiveness(%s) = %#v, want %s", test.wire, mapped, test.want)
+		}
 	}
 }
 
@@ -65,18 +94,15 @@ func TestMapSpeakerIdentificationEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mapSpeakerIdentification() error = %v", err)
 	}
-	if mapped.capability != readiness.SpeakerIdentification || len(mapped.evidence.SpeakerIdentifications) != 1 {
+	if mapped.capability != readiness.SpeakerIdentification || len(mapped.candidates) != 1 {
 		t.Fatalf("mapped = %#v", mapped)
-	}
-	if want := []readiness.CapabilityKind{readiness.SpeakerIdentification}; !reflect.DeepEqual(mapped.requiredCapabilities, want) {
-		t.Fatalf("required capabilities = %v, want %v", mapped.requiredCapabilities, want)
 	}
 	want := identity.SpeakerIdentificationCandidate{
 		ID: "speaker-1", ProfileRef: "profile-a", Score: 0.82,
-		ModelVersion: "speaker.v1", OccurredAt: now.Add(-time.Second),
+		ModelVersion: "speaker.v1",
 	}
-	if !reflect.DeepEqual(mapped.evidence.SpeakerIdentifications[0], want) {
-		t.Fatalf("candidate = %#v, want %#v", mapped.evidence.SpeakerIdentifications[0], want)
+	if !reflect.DeepEqual(mapped.candidates[0], want) {
+		t.Fatalf("candidate = %#v, want %#v", mapped.candidates[0], want)
 	}
 }
 
@@ -90,11 +116,8 @@ func TestMapSpeakerVerificationKeepsExpectedProfileApplicationOwned(t *testing.T
 	if err != nil {
 		t.Fatalf("mapSpeakerVerification() error = %v", err)
 	}
-	if mapped.capability != readiness.SpeakerVerification || mapped.challengeID != "challenge-1" || mapped.candidate.ID != "verification-1" || mapped.candidate.ProfileRef != "" || mapped.candidate.Score != 0.94 || mapped.candidate.ModelVersion != "verification.v1" || mapped.candidate.OccurredAt != now.Add(-time.Second) {
+	if mapped.capability != readiness.SpeakerVerification || mapped.challengeID != "challenge-1" || mapped.candidate.ID != "verification-1" || mapped.candidate.ProfileRef != "" || mapped.candidate.Score != 0.94 || mapped.candidate.ModelVersion != "verification.v1" {
 		t.Fatalf("mapped verification = %#v", mapped)
-	}
-	if want := []readiness.CapabilityKind{readiness.SpeakerVerification}; !reflect.DeepEqual(mapped.requiredCapabilities, want) {
-		t.Fatalf("required capabilities = %v, want %v", mapped.requiredCapabilities, want)
 	}
 	descriptor := request.ProtoReflect().Descriptor()
 	if field := descriptor.Fields().ByName("profile_ref"); field != nil {
@@ -102,22 +125,15 @@ func TestMapSpeakerVerificationKeepsExpectedProfileApplicationOwned(t *testing.T
 	}
 }
 
-func TestMapFaceIdentificationRequiresLivenessCapabilityOnlyWhenUsed(t *testing.T) {
+func TestIdentificationMappersAcceptExplicitNoMatch(t *testing.T) {
 	now := mapperNow()
-	request := &platformv1.PublishFaceIdentificationEvidenceRequest{
-		Metadata:      validMetadata(now),
-		FacesObserved: 1,
-		Candidates: []*platformv1.FaceIdentificationCandidate{
-			{CandidateId: "face-1", ProfileRef: "profile-a", Score: 0.91, ModelVersion: "face.v1", Liveness: platformv1.FaceLivenessState_FACE_LIVENESS_STATE_UNKNOWN},
-		},
+	face, err := mapFaceIdentification(&platformv1.PublishFaceIdentificationEvidenceRequest{Metadata: validMetadata(now)}, now)
+	if err != nil || face.capability != readiness.FaceIdentification || len(face.candidates) != 0 {
+		t.Fatalf("mapFaceIdentification(empty) = %#v, %v", face, err)
 	}
-	mapped, err := mapFaceIdentification(request, now)
-	if err != nil {
-		t.Fatalf("mapFaceIdentification() error = %v", err)
-	}
-	want := []readiness.CapabilityKind{readiness.FaceIdentification, readiness.FaceDetection}
-	if !reflect.DeepEqual(mapped.requiredCapabilities, want) {
-		t.Fatalf("required capabilities = %v, want %v", mapped.requiredCapabilities, want)
+	speaker, err := mapSpeakerIdentification(&platformv1.PublishSpeakerIdentificationEvidenceRequest{Metadata: validMetadata(now)}, now)
+	if err != nil || speaker.capability != readiness.SpeakerIdentification || len(speaker.candidates) != 0 {
+		t.Fatalf("mapSpeakerIdentification(empty) = %#v, %v", speaker, err)
 	}
 }
 
@@ -125,9 +141,9 @@ func TestEvidenceMappersRejectMalformedOrStaleInput(t *testing.T) {
 	now := mapperNow()
 	validFace := func() *platformv1.PublishFaceIdentificationEvidenceRequest {
 		return &platformv1.PublishFaceIdentificationEvidenceRequest{
-			Metadata: validMetadata(now), FacesObserved: 1,
+			Metadata: validMetadata(now),
 			Candidates: []*platformv1.FaceIdentificationCandidate{
-				{CandidateId: "face-1", ProfileRef: "profile-a", Score: 0.9, ModelVersion: "face.v1", Liveness: platformv1.FaceLivenessState_FACE_LIVENESS_STATE_UNKNOWN},
+				{CandidateId: "face-1", ProfileRef: "profile-a", Score: 0.9, ModelVersion: "face.v1"},
 			},
 		}
 	}
@@ -163,31 +179,23 @@ func TestEvidenceMappersRejectMalformedOrStaleInput(t *testing.T) {
 		{name: "trace too long", mutate: func(value *platformv1.PublishFaceIdentificationEvidenceRequest) {
 			value.Metadata.TraceId = strings.Repeat("t", maxTraceIDLength+1)
 		}},
-		{name: "zero faces", mutate: func(value *platformv1.PublishFaceIdentificationEvidenceRequest) { value.FacesObserved = 0 }},
-		{name: "no candidates", mutate: func(value *platformv1.PublishFaceIdentificationEvidenceRequest) { value.Candidates = nil }},
 		{name: "nil candidate", mutate: func(value *platformv1.PublishFaceIdentificationEvidenceRequest) { value.Candidates[0] = nil }},
 		{name: "duplicate candidate", mutate: func(value *platformv1.PublishFaceIdentificationEvidenceRequest) {
 			value.Candidates = append(value.Candidates, value.Candidates[0])
 		}},
 		{name: "mixed model versions", mutate: func(value *platformv1.PublishFaceIdentificationEvidenceRequest) {
 			value.Candidates = append(value.Candidates, &platformv1.FaceIdentificationCandidate{
-				CandidateId: "face-2", ProfileRef: "profile-b", Score: 0.8, ModelVersion: "face.v2", Liveness: platformv1.FaceLivenessState_FACE_LIVENESS_STATE_UNKNOWN,
+				CandidateId: "face-2", ProfileRef: "profile-b", Score: 0.8, ModelVersion: "face.v2",
 			})
 		}},
 		{name: "NaN score", mutate: func(value *platformv1.PublishFaceIdentificationEvidenceRequest) {
 			value.Candidates[0].Score = math.NaN()
 		}},
 		{name: "score above one", mutate: func(value *platformv1.PublishFaceIdentificationEvidenceRequest) { value.Candidates[0].Score = 1.01 }},
-		{name: "unspecified liveness", mutate: func(value *platformv1.PublishFaceIdentificationEvidenceRequest) {
-			value.Candidates[0].Liveness = platformv1.FaceLivenessState_FACE_LIVENESS_STATE_UNSPECIFIED
-		}},
-		{name: "unknown liveness enum", mutate: func(value *platformv1.PublishFaceIdentificationEvidenceRequest) {
-			value.Candidates[0].Liveness = platformv1.FaceLivenessState(99)
-		}},
 		{name: "too many candidates", mutate: func(value *platformv1.PublishFaceIdentificationEvidenceRequest) {
 			value.Candidates = make([]*platformv1.FaceIdentificationCandidate, maxCandidates+1)
 			for index := range value.Candidates {
-				value.Candidates[index] = &platformv1.FaceIdentificationCandidate{CandidateId: string(rune('a' + index)), ProfileRef: "profile-a", Score: 0.5, ModelVersion: "face.v1", Liveness: platformv1.FaceLivenessState_FACE_LIVENESS_STATE_UNKNOWN}
+				value.Candidates[index] = &platformv1.FaceIdentificationCandidate{CandidateId: string(rune('a' + index)), ProfileRef: "profile-a", Score: 0.5, ModelVersion: "face.v1"}
 			}
 		}},
 	}
@@ -199,6 +207,22 @@ func TestEvidenceMappersRejectMalformedOrStaleInput(t *testing.T) {
 				t.Fatal("mapFaceIdentification() error = nil")
 			}
 		})
+	}
+}
+
+func TestFaceEvidenceMappersRejectInvalidInput(t *testing.T) {
+	now := mapperNow()
+	if _, err := mapFaceDetection(nil, now); err == nil {
+		t.Fatal("mapFaceDetection(nil) error = nil")
+	}
+	for _, state := range []platformv1.FaceLivenessState{
+		platformv1.FaceLivenessState_FACE_LIVENESS_STATE_UNSPECIFIED,
+		platformv1.FaceLivenessState(99),
+	} {
+		request := &platformv1.PublishFaceLivenessEvidenceRequest{Metadata: validMetadata(now), State: state}
+		if _, err := mapFaceLiveness(request, now); err == nil {
+			t.Fatalf("mapFaceLiveness(%d) error = nil", state)
+		}
 	}
 }
 
@@ -220,11 +244,23 @@ func TestEvidenceMapperAcceptsExactTTLAndStringLimits(t *testing.T) {
 	}
 }
 
-func TestSpeakerMappersRejectEmptyCandidatesAndVerificationFields(t *testing.T) {
+func TestIdentificationMapperAcceptsMaximumCandidates(t *testing.T) {
 	now := mapperNow()
-	if _, err := mapSpeakerIdentification(&platformv1.PublishSpeakerIdentificationEvidenceRequest{Metadata: validMetadata(now)}, now); err == nil {
-		t.Fatal("mapSpeakerIdentification(empty) error = nil")
+	request := &platformv1.PublishSpeakerIdentificationEvidenceRequest{
+		Metadata: validMetadata(now), Candidates: make([]*platformv1.SpeakerIdentificationCandidate, maxCandidates),
 	}
+	for index := range request.Candidates {
+		request.Candidates[index] = &platformv1.SpeakerIdentificationCandidate{
+			CandidateId: string(rune('a' + index)), ProfileRef: "profile-a", Score: 0.5, ModelVersion: "speaker.v1",
+		}
+	}
+	if mapped, err := mapSpeakerIdentification(request, now); err != nil || len(mapped.candidates) != maxCandidates {
+		t.Fatalf("mapSpeakerIdentification(max) = %#v, %v", mapped, err)
+	}
+}
+
+func TestSpeakerVerificationMapperRejectsInvalidFields(t *testing.T) {
+	now := mapperNow()
 	valid := &platformv1.PublishSpeakerVerificationEvidenceRequest{
 		Metadata: validMetadata(now), VerificationChallengeId: "challenge-1",
 		CandidateId: "candidate-1", Score: 0.8, ModelVersion: "speaker.v1",
@@ -243,6 +279,39 @@ func TestSpeakerMappersRejectEmptyCandidatesAndVerificationFields(t *testing.T) 
 	}
 }
 
+func TestIdentityContractSeparatesFaceCapabilitiesAndReservesRemovedFields(t *testing.T) {
+	file := (&platformv1.PublishFaceIdentificationEvidenceRequest{}).ProtoReflect().Descriptor().ParentFile()
+	service := file.Services().ByName("IdentityEvidenceIngressService")
+	for _, name := range []protoreflect.Name{
+		"PublishFaceDetectionEvidence",
+		"PublishFaceIdentificationEvidence",
+		"PublishFaceLivenessEvidence",
+		"PublishSpeakerIdentificationEvidence",
+		"PublishSpeakerVerificationEvidence",
+	} {
+		if service == nil || service.Methods().ByName(name) == nil {
+			t.Fatalf("identity service is missing %s", name)
+		}
+	}
+
+	faceRequest := (&platformv1.PublishFaceIdentificationEvidenceRequest{}).ProtoReflect().Descriptor()
+	if faceRequest.Fields().ByNumber(1) == nil || faceRequest.Fields().ByNumber(3) == nil || faceRequest.Fields().ByNumber(2) != nil || !reservedNumber(faceRequest.ReservedRanges(), 2) {
+		t.Fatalf("face identification request fields/reservations = %v/%v", faceRequest.Fields(), faceRequest.ReservedRanges())
+	}
+	faceCandidate := (&platformv1.FaceIdentificationCandidate{}).ProtoReflect().Descriptor()
+	if faceCandidate.Fields().ByNumber(5) != nil || !reservedNumber(faceCandidate.ReservedRanges(), 5) {
+		t.Fatalf("face candidate field 5 reservation = %v/%v", faceCandidate.Fields().ByNumber(5), faceCandidate.ReservedRanges())
+	}
+	detection := (&platformv1.PublishFaceDetectionEvidenceRequest{}).ProtoReflect().Descriptor()
+	if detection.Fields().ByName("metadata").Number() != 1 || detection.Fields().ByName("faces_observed").Number() != 2 {
+		t.Fatalf("face detection fields = %v", detection.Fields())
+	}
+	liveness := (&platformv1.PublishFaceLivenessEvidenceRequest{}).ProtoReflect().Descriptor()
+	if liveness.Fields().ByName("metadata").Number() != 1 || liveness.Fields().ByName("state").Number() != 2 {
+		t.Fatalf("face liveness fields = %v", liveness.Fields())
+	}
+}
+
 func TestIdentityContractContainsNoRawOrUntypedPayload(t *testing.T) {
 	file := (&platformv1.PublishFaceIdentificationEvidenceRequest{}).ProtoReflect().Descriptor().ParentFile()
 	messages := file.Messages()
@@ -257,6 +326,16 @@ func TestIdentityContractContainsNoRawOrUntypedPayload(t *testing.T) {
 			}
 		}
 	}
+}
+
+func reservedNumber(ranges protoreflect.FieldRanges, number protoreflect.FieldNumber) bool {
+	for index := 0; index < ranges.Len(); index++ {
+		current := ranges.Get(index)
+		if number >= current[0] && number < current[1] {
+			return true
+		}
+	}
+	return false
 }
 
 func validMetadata(now time.Time) *platformv1.IdentityEvidenceMetadata {
