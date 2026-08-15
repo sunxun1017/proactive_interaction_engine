@@ -18,6 +18,10 @@ class ProviderConfig:
     instance_id: str
     capability: int
     implementation_version: str
+    privacy_class: int
+    maximum_latency: datetime.timedelta
+    cancellation_semantics: int
+    device_requirements: tuple
     subject_id: str
     observation_ttl: datetime.timedelta
     heartbeat_interval: datetime.timedelta = datetime.timedelta(seconds=5)
@@ -29,6 +33,34 @@ class ProviderConfig:
             raise ValueError("provider identifiers must be non-empty and trimmed")
         if self.capability == capability_pb2.SERVICE_CAPABILITY_KIND_UNSPECIFIED:
             raise ValueError("provider capability is required")
+        if self.privacy_class not in (
+            capability_pb2.PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL,
+            capability_pb2.PROVIDER_PRIVACY_CLASS_REMOTE_PROCESSING,
+        ):
+            raise ValueError("provider privacy class is required")
+        if (
+            not isinstance(self.maximum_latency, datetime.timedelta)
+            or self.maximum_latency <= datetime.timedelta(0)
+        ):
+            raise ValueError("provider maximum latency must be positive")
+        if self.cancellation_semantics not in (
+            capability_pb2.PROVIDER_CANCELLATION_SEMANTICS_NOT_SUPPORTED,
+            capability_pb2.PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE,
+            capability_pb2.PROVIDER_CANCELLATION_SEMANTICS_BOUNDED,
+        ):
+            raise ValueError("provider cancellation semantics are required")
+        devices = tuple(self.device_requirements)
+        valid_devices = {
+            capability_pb2.PROVIDER_DEVICE_CLASS_CAMERA,
+            capability_pb2.PROVIDER_DEVICE_CLASS_MICROPHONE,
+            capability_pb2.PROVIDER_DEVICE_CLASS_DISPLAY,
+            capability_pb2.PROVIDER_DEVICE_CLASS_AUDIO_OUTPUT,
+            capability_pb2.PROVIDER_DEVICE_CLASS_EMBODIMENT_CONTROLLER,
+        }
+        duplicate_device = len(set(devices)) != len(devices)
+        if any(device not in valid_devices for device in devices) or duplicate_device:
+            raise ValueError("provider device requirements must be known and unique")
+        object.__setattr__(self, "device_requirements", devices)
         if self.observation_ttl <= datetime.timedelta(0):
             raise ValueError("observation TTL must be positive")
         if self.heartbeat_interval <= datetime.timedelta(0) or self.rpc_timeout <= 0:
@@ -132,6 +164,8 @@ class ProviderSession:
             self._channel.close()
 
     def _register(self):
+        maximum_latency = duration_pb2.Duration()
+        maximum_latency.FromTimedelta(self._config.maximum_latency)
         request = capability_pb2.RegisterCapabilityProviderRequest(
             provider_id=self._config.provider_id,
             instance_id=self._config.instance_id,
@@ -140,6 +174,12 @@ class ProviderSession:
             capabilities=[self._config.capability],
             health=capability_pb2.PROVIDER_HEALTH_STATE_UNHEALTHY,
             health_reason=capability_pb2.PROVIDER_HEALTH_REASON_STARTING,
+            operational_profile=capability_pb2.ProviderOperationalProfile(
+                privacy_class=self._config.privacy_class,
+                maximum_latency=maximum_latency,
+                cancellation_semantics=self._config.cancellation_semantics,
+                device_requirements=self._config.device_requirements,
+            ),
         )
         try:
             response = self._registry.RegisterCapabilityProvider(request, timeout=self._config.rpc_timeout)

@@ -16,6 +16,7 @@ type registrationDeclaration struct {
 	protocolVersion       string
 	implementationVersion string
 	capabilities          []readiness.CapabilityKind
+	operationalProfile    readiness.ProviderOperationalProfile
 	health                readiness.ProviderHealth
 	healthReason          platformv1.ProviderHealthReason
 }
@@ -38,15 +39,113 @@ func normalizeRegistration(request *platformv1.RegisterCapabilityProviderRequest
 	if err != nil {
 		return registrationDeclaration{}, err
 	}
+	operationalProfile, err := normalizeOperationalProfile(request.GetOperationalProfile())
+	if err != nil {
+		return registrationDeclaration{}, err
+	}
 	return registrationDeclaration{
 		providerID:            request.GetProviderId(),
 		instanceID:            request.GetInstanceId(),
 		protocolVersion:       request.GetProtocolVersion(),
 		implementationVersion: request.GetImplementationVersion(),
 		capabilities:          capabilities,
+		operationalProfile:    operationalProfile,
 		health:                health,
 		healthReason:          request.GetHealthReason(),
 	}, nil
+}
+
+func normalizeOperationalProfile(input *platformv1.ProviderOperationalProfile) (readiness.ProviderOperationalProfile, error) {
+	if input == nil {
+		return readiness.ProviderOperationalProfile{}, status.Error(codes.InvalidArgument, "operational profile is required")
+	}
+	privacyClass, ok := mapPrivacyClass(input.GetPrivacyClass())
+	if !ok {
+		return readiness.ProviderOperationalProfile{}, status.Error(codes.InvalidArgument, "operational profile privacy class is unspecified or unknown")
+	}
+	latency := input.GetMaximumLatency()
+	if latency == nil {
+		return readiness.ProviderOperationalProfile{}, status.Error(codes.InvalidArgument, "operational profile maximum latency is required")
+	}
+	if err := latency.CheckValid(); err != nil {
+		return readiness.ProviderOperationalProfile{}, status.Error(codes.InvalidArgument, "operational profile maximum latency is invalid")
+	}
+	maximumLatency := latency.AsDuration()
+	if maximumLatency <= 0 {
+		return readiness.ProviderOperationalProfile{}, status.Error(codes.InvalidArgument, "operational profile maximum latency must be positive")
+	}
+	cancellationSemantics, ok := mapCancellationSemantics(input.GetCancellationSemantics())
+	if !ok {
+		return readiness.ProviderOperationalProfile{}, status.Error(codes.InvalidArgument, "operational profile cancellation semantics are unspecified or unknown")
+	}
+	deviceRequirements, err := normalizeDeviceRequirements(input.GetDeviceRequirements())
+	if err != nil {
+		return readiness.ProviderOperationalProfile{}, err
+	}
+	return readiness.ProviderOperationalProfile{
+		PrivacyClass:          privacyClass,
+		MaximumLatency:        maximumLatency,
+		CancellationSemantics: cancellationSemantics,
+		DeviceRequirements:    deviceRequirements,
+	}, nil
+}
+
+func mapPrivacyClass(input platformv1.ProviderPrivacyClass) (readiness.ProviderPrivacyClass, bool) {
+	switch input {
+	case platformv1.ProviderPrivacyClass_PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL:
+		return readiness.ProviderPrivacyDeviceLocal, true
+	case platformv1.ProviderPrivacyClass_PROVIDER_PRIVACY_CLASS_REMOTE_PROCESSING:
+		return readiness.ProviderPrivacyRemoteProcessing, true
+	default:
+		return "", false
+	}
+}
+
+func mapCancellationSemantics(input platformv1.ProviderCancellationSemantics) (readiness.ProviderCancellationSemantics, bool) {
+	switch input {
+	case platformv1.ProviderCancellationSemantics_PROVIDER_CANCELLATION_SEMANTICS_NOT_SUPPORTED:
+		return readiness.ProviderCancellationNotSupported, true
+	case platformv1.ProviderCancellationSemantics_PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE:
+		return readiness.ProviderCancellationCooperative, true
+	case platformv1.ProviderCancellationSemantics_PROVIDER_CANCELLATION_SEMANTICS_BOUNDED:
+		return readiness.ProviderCancellationBounded, true
+	default:
+		return "", false
+	}
+}
+
+func normalizeDeviceRequirements(input []platformv1.ProviderDeviceClass) ([]readiness.ProviderDeviceClass, error) {
+	wire := append([]platformv1.ProviderDeviceClass(nil), input...)
+	sort.Slice(wire, func(i, j int) bool { return wire[i] < wire[j] })
+	requirements := make([]readiness.ProviderDeviceClass, 0, len(wire))
+	for index, device := range wire {
+		if index > 0 && device == wire[index-1] {
+			return nil, status.Error(codes.InvalidArgument, "operational profile device requirement is duplicated")
+		}
+		mapped, ok := mapDeviceClass(device)
+		if !ok {
+			return nil, status.Error(codes.InvalidArgument, "operational profile device requirement is unspecified or unknown")
+		}
+		requirements = append(requirements, mapped)
+	}
+	return requirements, nil
+}
+
+func mapDeviceClass(input platformv1.ProviderDeviceClass) (readiness.ProviderDeviceClass, bool) {
+	switch input {
+	case platformv1.ProviderDeviceClass_PROVIDER_DEVICE_CLASS_CAMERA:
+		return readiness.ProviderDeviceCamera, true
+	case platformv1.ProviderDeviceClass_PROVIDER_DEVICE_CLASS_MICROPHONE:
+		return readiness.ProviderDeviceMicrophone, true
+	case platformv1.ProviderDeviceClass_PROVIDER_DEVICE_CLASS_DISPLAY:
+		return readiness.ProviderDeviceDisplay, true
+	case platformv1.ProviderDeviceClass_PROVIDER_DEVICE_CLASS_AUDIO_OUTPUT:
+		return readiness.ProviderDeviceAudioOutput, true
+	case platformv1.ProviderDeviceClass_PROVIDER_DEVICE_CLASS_EMBODIMENT_CONTROLLER:
+		return readiness.ProviderDeviceEmbodimentController, true
+	default:
+		return "", false
+	}
 }
 
 func normalizeHeartbeat(request *platformv1.HeartbeatCapabilityProviderRequest) (string, readiness.ProviderHealth, error) {

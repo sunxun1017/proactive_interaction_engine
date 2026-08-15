@@ -9,6 +9,7 @@ package platformv1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -244,6 +245,245 @@ func (ProviderHealthReason) EnumDescriptor() ([]byte, []int) {
 	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{2}
 }
 
+// ProviderPrivacyClass describes the provider's processing locality. Separate
+// capability permissions still authorize whether sensitive processing may run.
+type ProviderPrivacyClass int32
+
+const (
+	ProviderPrivacyClass_PROVIDER_PRIVACY_CLASS_UNSPECIFIED       ProviderPrivacyClass = 0
+	ProviderPrivacyClass_PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL      ProviderPrivacyClass = 1
+	ProviderPrivacyClass_PROVIDER_PRIVACY_CLASS_REMOTE_PROCESSING ProviderPrivacyClass = 2
+)
+
+// Enum value maps for ProviderPrivacyClass.
+var (
+	ProviderPrivacyClass_name = map[int32]string{
+		0: "PROVIDER_PRIVACY_CLASS_UNSPECIFIED",
+		1: "PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL",
+		2: "PROVIDER_PRIVACY_CLASS_REMOTE_PROCESSING",
+	}
+	ProviderPrivacyClass_value = map[string]int32{
+		"PROVIDER_PRIVACY_CLASS_UNSPECIFIED":       0,
+		"PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL":      1,
+		"PROVIDER_PRIVACY_CLASS_REMOTE_PROCESSING": 2,
+	}
+)
+
+func (x ProviderPrivacyClass) Enum() *ProviderPrivacyClass {
+	p := new(ProviderPrivacyClass)
+	*p = x
+	return p
+}
+
+func (x ProviderPrivacyClass) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ProviderPrivacyClass) Descriptor() protoreflect.EnumDescriptor {
+	return file_proactive_platform_v1_capability_proto_enumTypes[3].Descriptor()
+}
+
+func (ProviderPrivacyClass) Type() protoreflect.EnumType {
+	return &file_proactive_platform_v1_capability_proto_enumTypes[3]
+}
+
+func (x ProviderPrivacyClass) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ProviderPrivacyClass.Descriptor instead.
+func (ProviderPrivacyClass) EnumDescriptor() ([]byte, []int) {
+	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{3}
+}
+
+// ProviderCancellationSemantics describes the weakest cancellation guarantee
+// across the provider's declared capabilities. It is software cancellation,
+// not a physical emergency-stop guarantee.
+type ProviderCancellationSemantics int32
+
+const (
+	ProviderCancellationSemantics_PROVIDER_CANCELLATION_SEMANTICS_UNSPECIFIED   ProviderCancellationSemantics = 0
+	ProviderCancellationSemantics_PROVIDER_CANCELLATION_SEMANTICS_NOT_SUPPORTED ProviderCancellationSemantics = 1
+	ProviderCancellationSemantics_PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE   ProviderCancellationSemantics = 2
+	ProviderCancellationSemantics_PROVIDER_CANCELLATION_SEMANTICS_BOUNDED       ProviderCancellationSemantics = 3
+)
+
+// Enum value maps for ProviderCancellationSemantics.
+var (
+	ProviderCancellationSemantics_name = map[int32]string{
+		0: "PROVIDER_CANCELLATION_SEMANTICS_UNSPECIFIED",
+		1: "PROVIDER_CANCELLATION_SEMANTICS_NOT_SUPPORTED",
+		2: "PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE",
+		3: "PROVIDER_CANCELLATION_SEMANTICS_BOUNDED",
+	}
+	ProviderCancellationSemantics_value = map[string]int32{
+		"PROVIDER_CANCELLATION_SEMANTICS_UNSPECIFIED":   0,
+		"PROVIDER_CANCELLATION_SEMANTICS_NOT_SUPPORTED": 1,
+		"PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE":   2,
+		"PROVIDER_CANCELLATION_SEMANTICS_BOUNDED":       3,
+	}
+)
+
+func (x ProviderCancellationSemantics) Enum() *ProviderCancellationSemantics {
+	p := new(ProviderCancellationSemantics)
+	*p = x
+	return p
+}
+
+func (x ProviderCancellationSemantics) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ProviderCancellationSemantics) Descriptor() protoreflect.EnumDescriptor {
+	return file_proactive_platform_v1_capability_proto_enumTypes[4].Descriptor()
+}
+
+func (ProviderCancellationSemantics) Type() protoreflect.EnumType {
+	return &file_proactive_platform_v1_capability_proto_enumTypes[4]
+}
+
+func (x ProviderCancellationSemantics) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ProviderCancellationSemantics.Descriptor instead.
+func (ProviderCancellationSemantics) EnumDescriptor() ([]byte, []int) {
+	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{4}
+}
+
+// ProviderDeviceClass declares direct device dependencies without exposing
+// adapter-specific paths, handles, vendor identifiers, or platform APIs.
+type ProviderDeviceClass int32
+
+const (
+	ProviderDeviceClass_PROVIDER_DEVICE_CLASS_UNSPECIFIED           ProviderDeviceClass = 0
+	ProviderDeviceClass_PROVIDER_DEVICE_CLASS_CAMERA                ProviderDeviceClass = 1
+	ProviderDeviceClass_PROVIDER_DEVICE_CLASS_MICROPHONE            ProviderDeviceClass = 2
+	ProviderDeviceClass_PROVIDER_DEVICE_CLASS_DISPLAY               ProviderDeviceClass = 3
+	ProviderDeviceClass_PROVIDER_DEVICE_CLASS_AUDIO_OUTPUT          ProviderDeviceClass = 4
+	ProviderDeviceClass_PROVIDER_DEVICE_CLASS_EMBODIMENT_CONTROLLER ProviderDeviceClass = 5
+)
+
+// Enum value maps for ProviderDeviceClass.
+var (
+	ProviderDeviceClass_name = map[int32]string{
+		0: "PROVIDER_DEVICE_CLASS_UNSPECIFIED",
+		1: "PROVIDER_DEVICE_CLASS_CAMERA",
+		2: "PROVIDER_DEVICE_CLASS_MICROPHONE",
+		3: "PROVIDER_DEVICE_CLASS_DISPLAY",
+		4: "PROVIDER_DEVICE_CLASS_AUDIO_OUTPUT",
+		5: "PROVIDER_DEVICE_CLASS_EMBODIMENT_CONTROLLER",
+	}
+	ProviderDeviceClass_value = map[string]int32{
+		"PROVIDER_DEVICE_CLASS_UNSPECIFIED":           0,
+		"PROVIDER_DEVICE_CLASS_CAMERA":                1,
+		"PROVIDER_DEVICE_CLASS_MICROPHONE":            2,
+		"PROVIDER_DEVICE_CLASS_DISPLAY":               3,
+		"PROVIDER_DEVICE_CLASS_AUDIO_OUTPUT":          4,
+		"PROVIDER_DEVICE_CLASS_EMBODIMENT_CONTROLLER": 5,
+	}
+)
+
+func (x ProviderDeviceClass) Enum() *ProviderDeviceClass {
+	p := new(ProviderDeviceClass)
+	*p = x
+	return p
+}
+
+func (x ProviderDeviceClass) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ProviderDeviceClass) Descriptor() protoreflect.EnumDescriptor {
+	return file_proactive_platform_v1_capability_proto_enumTypes[5].Descriptor()
+}
+
+func (ProviderDeviceClass) Type() protoreflect.EnumType {
+	return &file_proactive_platform_v1_capability_proto_enumTypes[5]
+}
+
+func (x ProviderDeviceClass) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ProviderDeviceClass.Descriptor instead.
+func (ProviderDeviceClass) EnumDescriptor() ([]byte, []int) {
+	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{5}
+}
+
+// ProviderOperationalProfile is a conservative provider-wide envelope:
+// privacy is the most exposed class, maximum_latency is the slowest upper
+// bound, cancellation_semantics is the weakest guarantee, and device
+// requirements are the union across declared capabilities.
+type ProviderOperationalProfile struct {
+	state                 protoimpl.MessageState        `protogen:"open.v1"`
+	PrivacyClass          ProviderPrivacyClass          `protobuf:"varint,1,opt,name=privacy_class,json=privacyClass,proto3,enum=proactive.platform.v1.ProviderPrivacyClass" json:"privacy_class,omitempty"`
+	MaximumLatency        *durationpb.Duration          `protobuf:"bytes,2,opt,name=maximum_latency,json=maximumLatency,proto3" json:"maximum_latency,omitempty"`
+	CancellationSemantics ProviderCancellationSemantics `protobuf:"varint,3,opt,name=cancellation_semantics,json=cancellationSemantics,proto3,enum=proactive.platform.v1.ProviderCancellationSemantics" json:"cancellation_semantics,omitempty"`
+	// Entries must be non-UNSPECIFIED and unique.
+	DeviceRequirements []ProviderDeviceClass `protobuf:"varint,4,rep,packed,name=device_requirements,json=deviceRequirements,proto3,enum=proactive.platform.v1.ProviderDeviceClass" json:"device_requirements,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *ProviderOperationalProfile) Reset() {
+	*x = ProviderOperationalProfile{}
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProviderOperationalProfile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProviderOperationalProfile) ProtoMessage() {}
+
+func (x *ProviderOperationalProfile) ProtoReflect() protoreflect.Message {
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProviderOperationalProfile.ProtoReflect.Descriptor instead.
+func (*ProviderOperationalProfile) Descriptor() ([]byte, []int) {
+	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ProviderOperationalProfile) GetPrivacyClass() ProviderPrivacyClass {
+	if x != nil {
+		return x.PrivacyClass
+	}
+	return ProviderPrivacyClass_PROVIDER_PRIVACY_CLASS_UNSPECIFIED
+}
+
+func (x *ProviderOperationalProfile) GetMaximumLatency() *durationpb.Duration {
+	if x != nil {
+		return x.MaximumLatency
+	}
+	return nil
+}
+
+func (x *ProviderOperationalProfile) GetCancellationSemantics() ProviderCancellationSemantics {
+	if x != nil {
+		return x.CancellationSemantics
+	}
+	return ProviderCancellationSemantics_PROVIDER_CANCELLATION_SEMANTICS_UNSPECIFIED
+}
+
+func (x *ProviderOperationalProfile) GetDeviceRequirements() []ProviderDeviceClass {
+	if x != nil {
+		return x.DeviceRequirements
+	}
+	return nil
+}
+
 type RegisterCapabilityProviderRequest struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	ProviderId            string                 `protobuf:"bytes,1,opt,name=provider_id,json=providerId,proto3" json:"provider_id,omitempty"`
@@ -251,16 +491,19 @@ type RegisterCapabilityProviderRequest struct {
 	ProtocolVersion       string                 `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
 	ImplementationVersion string                 `protobuf:"bytes,4,opt,name=implementation_version,json=implementationVersion,proto3" json:"implementation_version,omitempty"`
 	// Entries must be non-UNSPECIFIED and unique.
-	Capabilities  []ServiceCapabilityKind `protobuf:"varint,5,rep,packed,name=capabilities,proto3,enum=proactive.platform.v1.ServiceCapabilityKind" json:"capabilities,omitempty"`
-	Health        ProviderHealthState     `protobuf:"varint,6,opt,name=health,proto3,enum=proactive.platform.v1.ProviderHealthState" json:"health,omitempty"`
-	HealthReason  ProviderHealthReason    `protobuf:"varint,7,opt,name=health_reason,json=healthReason,proto3,enum=proactive.platform.v1.ProviderHealthReason" json:"health_reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Capabilities []ServiceCapabilityKind `protobuf:"varint,5,rep,packed,name=capabilities,proto3,enum=proactive.platform.v1.ServiceCapabilityKind" json:"capabilities,omitempty"`
+	Health       ProviderHealthState     `protobuf:"varint,6,opt,name=health,proto3,enum=proactive.platform.v1.ProviderHealthState" json:"health,omitempty"`
+	HealthReason ProviderHealthReason    `protobuf:"varint,7,opt,name=health_reason,json=healthReason,proto3,enum=proactive.platform.v1.ProviderHealthReason" json:"health_reason,omitempty"`
+	// Required by the v1 registry boundary; every field is validated fail
+	// closed. Message presence lets the boundary distinguish omission.
+	OperationalProfile *ProviderOperationalProfile `protobuf:"bytes,8,opt,name=operational_profile,json=operationalProfile,proto3" json:"operational_profile,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *RegisterCapabilityProviderRequest) Reset() {
 	*x = RegisterCapabilityProviderRequest{}
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[0]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -272,7 +515,7 @@ func (x *RegisterCapabilityProviderRequest) String() string {
 func (*RegisterCapabilityProviderRequest) ProtoMessage() {}
 
 func (x *RegisterCapabilityProviderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[0]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -285,7 +528,7 @@ func (x *RegisterCapabilityProviderRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use RegisterCapabilityProviderRequest.ProtoReflect.Descriptor instead.
 func (*RegisterCapabilityProviderRequest) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{0}
+	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RegisterCapabilityProviderRequest) GetProviderId() string {
@@ -337,6 +580,13 @@ func (x *RegisterCapabilityProviderRequest) GetHealthReason() ProviderHealthReas
 	return ProviderHealthReason_PROVIDER_HEALTH_REASON_UNSPECIFIED
 }
 
+func (x *RegisterCapabilityProviderRequest) GetOperationalProfile() *ProviderOperationalProfile {
+	if x != nil {
+		return x.OperationalProfile
+	}
+	return nil
+}
+
 type RegisterCapabilityProviderResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// lease_id and expires_at are issued by the registry service.
@@ -348,7 +598,7 @@ type RegisterCapabilityProviderResponse struct {
 
 func (x *RegisterCapabilityProviderResponse) Reset() {
 	*x = RegisterCapabilityProviderResponse{}
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[1]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -360,7 +610,7 @@ func (x *RegisterCapabilityProviderResponse) String() string {
 func (*RegisterCapabilityProviderResponse) ProtoMessage() {}
 
 func (x *RegisterCapabilityProviderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[1]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -373,7 +623,7 @@ func (x *RegisterCapabilityProviderResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use RegisterCapabilityProviderResponse.ProtoReflect.Descriptor instead.
 func (*RegisterCapabilityProviderResponse) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{1}
+	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *RegisterCapabilityProviderResponse) GetLeaseId() string {
@@ -401,7 +651,7 @@ type HeartbeatCapabilityProviderRequest struct {
 
 func (x *HeartbeatCapabilityProviderRequest) Reset() {
 	*x = HeartbeatCapabilityProviderRequest{}
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[2]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -413,7 +663,7 @@ func (x *HeartbeatCapabilityProviderRequest) String() string {
 func (*HeartbeatCapabilityProviderRequest) ProtoMessage() {}
 
 func (x *HeartbeatCapabilityProviderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[2]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -426,7 +676,7 @@ func (x *HeartbeatCapabilityProviderRequest) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use HeartbeatCapabilityProviderRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatCapabilityProviderRequest) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{2}
+	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *HeartbeatCapabilityProviderRequest) GetLeaseId() string {
@@ -460,7 +710,7 @@ type HeartbeatCapabilityProviderResponse struct {
 
 func (x *HeartbeatCapabilityProviderResponse) Reset() {
 	*x = HeartbeatCapabilityProviderResponse{}
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[3]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -472,7 +722,7 @@ func (x *HeartbeatCapabilityProviderResponse) String() string {
 func (*HeartbeatCapabilityProviderResponse) ProtoMessage() {}
 
 func (x *HeartbeatCapabilityProviderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[3]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -485,7 +735,7 @@ func (x *HeartbeatCapabilityProviderResponse) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use HeartbeatCapabilityProviderResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatCapabilityProviderResponse) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{3}
+	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *HeartbeatCapabilityProviderResponse) GetExpiresAt() *timestamppb.Timestamp {
@@ -504,7 +754,7 @@ type UnregisterCapabilityProviderRequest struct {
 
 func (x *UnregisterCapabilityProviderRequest) Reset() {
 	*x = UnregisterCapabilityProviderRequest{}
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[4]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -516,7 +766,7 @@ func (x *UnregisterCapabilityProviderRequest) String() string {
 func (*UnregisterCapabilityProviderRequest) ProtoMessage() {}
 
 func (x *UnregisterCapabilityProviderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[4]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -529,7 +779,7 @@ func (x *UnregisterCapabilityProviderRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use UnregisterCapabilityProviderRequest.ProtoReflect.Descriptor instead.
 func (*UnregisterCapabilityProviderRequest) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{4}
+	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *UnregisterCapabilityProviderRequest) GetLeaseId() string {
@@ -547,7 +797,7 @@ type UnregisterCapabilityProviderResponse struct {
 
 func (x *UnregisterCapabilityProviderResponse) Reset() {
 	*x = UnregisterCapabilityProviderResponse{}
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[5]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -559,7 +809,7 @@ func (x *UnregisterCapabilityProviderResponse) String() string {
 func (*UnregisterCapabilityProviderResponse) ProtoMessage() {}
 
 func (x *UnregisterCapabilityProviderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proactive_platform_v1_capability_proto_msgTypes[5]
+	mi := &file_proactive_platform_v1_capability_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -572,14 +822,19 @@ func (x *UnregisterCapabilityProviderResponse) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use UnregisterCapabilityProviderResponse.ProtoReflect.Descriptor instead.
 func (*UnregisterCapabilityProviderResponse) Descriptor() ([]byte, []int) {
-	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{5}
+	return file_proactive_platform_v1_capability_proto_rawDescGZIP(), []int{6}
 }
 
 var File_proactive_platform_v1_capability_proto protoreflect.FileDescriptor
 
 const file_proactive_platform_v1_capability_proto_rawDesc = "" +
 	"\n" +
-	"&proactive/platform/v1/capability.proto\x12\x15proactive.platform.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaf\x03\n" +
+	"&proactive/platform/v1/capability.proto\x12\x15proactive.platform.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfc\x02\n" +
+	"\x1aProviderOperationalProfile\x12P\n" +
+	"\rprivacy_class\x18\x01 \x01(\x0e2+.proactive.platform.v1.ProviderPrivacyClassR\fprivacyClass\x12B\n" +
+	"\x0fmaximum_latency\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x0emaximumLatency\x12k\n" +
+	"\x16cancellation_semantics\x18\x03 \x01(\x0e24.proactive.platform.v1.ProviderCancellationSemanticsR\x15cancellationSemantics\x12[\n" +
+	"\x13device_requirements\x18\x04 \x03(\x0e2*.proactive.platform.v1.ProviderDeviceClassR\x12deviceRequirements\"\x93\x04\n" +
 	"!RegisterCapabilityProviderRequest\x12\x1f\n" +
 	"\vprovider_id\x18\x01 \x01(\tR\n" +
 	"providerId\x12\x1f\n" +
@@ -589,7 +844,8 @@ const file_proactive_platform_v1_capability_proto_rawDesc = "" +
 	"\x16implementation_version\x18\x04 \x01(\tR\x15implementationVersion\x12P\n" +
 	"\fcapabilities\x18\x05 \x03(\x0e2,.proactive.platform.v1.ServiceCapabilityKindR\fcapabilities\x12B\n" +
 	"\x06health\x18\x06 \x01(\x0e2*.proactive.platform.v1.ProviderHealthStateR\x06health\x12P\n" +
-	"\rhealth_reason\x18\a \x01(\x0e2+.proactive.platform.v1.ProviderHealthReasonR\fhealthReason\"z\n" +
+	"\rhealth_reason\x18\a \x01(\x0e2+.proactive.platform.v1.ProviderHealthReasonR\fhealthReason\x12b\n" +
+	"\x13operational_profile\x18\b \x01(\v21.proactive.platform.v1.ProviderOperationalProfileR\x12operationalProfile\"z\n" +
 	"\"RegisterCapabilityProviderResponse\x12\x19\n" +
 	"\blease_id\x18\x01 \x01(\tR\aleaseId\x129\n" +
 	"\n" +
@@ -639,7 +895,23 @@ const file_proactive_platform_v1_capability_proto_rawDesc = "" +
 	"-PROVIDER_HEALTH_REASON_DEPENDENCY_UNAVAILABLE\x10\x05\x12,\n" +
 	"(PROVIDER_HEALTH_REASON_MODEL_UNAVAILABLE\x10\x06\x12)\n" +
 	"%PROVIDER_HEALTH_REASON_INTERNAL_ERROR\x10\a\x12(\n" +
-	"$PROVIDER_HEALTH_REASON_SHUTTING_DOWN\x10\b2\xe8\x03\n" +
+	"$PROVIDER_HEALTH_REASON_SHUTTING_DOWN\x10\b*\x95\x01\n" +
+	"\x14ProviderPrivacyClass\x12&\n" +
+	"\"PROVIDER_PRIVACY_CLASS_UNSPECIFIED\x10\x00\x12'\n" +
+	"#PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL\x10\x01\x12,\n" +
+	"(PROVIDER_PRIVACY_CLASS_REMOTE_PROCESSING\x10\x02*\xe1\x01\n" +
+	"\x1dProviderCancellationSemantics\x12/\n" +
+	"+PROVIDER_CANCELLATION_SEMANTICS_UNSPECIFIED\x10\x00\x121\n" +
+	"-PROVIDER_CANCELLATION_SEMANTICS_NOT_SUPPORTED\x10\x01\x12/\n" +
+	"+PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE\x10\x02\x12+\n" +
+	"'PROVIDER_CANCELLATION_SEMANTICS_BOUNDED\x10\x03*\x80\x02\n" +
+	"\x13ProviderDeviceClass\x12%\n" +
+	"!PROVIDER_DEVICE_CLASS_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cPROVIDER_DEVICE_CLASS_CAMERA\x10\x01\x12$\n" +
+	" PROVIDER_DEVICE_CLASS_MICROPHONE\x10\x02\x12!\n" +
+	"\x1dPROVIDER_DEVICE_CLASS_DISPLAY\x10\x03\x12&\n" +
+	"\"PROVIDER_DEVICE_CLASS_AUDIO_OUTPUT\x10\x04\x12/\n" +
+	"+PROVIDER_DEVICE_CLASS_EMBODIMENT_CONTROLLER\x10\x052\xe8\x03\n" +
 	"!CapabilityProviderRegistryService\x12\x91\x01\n" +
 	"\x1aRegisterCapabilityProvider\x128.proactive.platform.v1.RegisterCapabilityProviderRequest\x1a9.proactive.platform.v1.RegisterCapabilityProviderResponse\x12\x94\x01\n" +
 	"\x1bHeartbeatCapabilityProvider\x129.proactive.platform.v1.HeartbeatCapabilityProviderRequest\x1a:.proactive.platform.v1.HeartbeatCapabilityProviderResponse\x12\x97\x01\n" +
@@ -657,39 +929,49 @@ func file_proactive_platform_v1_capability_proto_rawDescGZIP() []byte {
 	return file_proactive_platform_v1_capability_proto_rawDescData
 }
 
-var file_proactive_platform_v1_capability_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_proactive_platform_v1_capability_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_proactive_platform_v1_capability_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_proactive_platform_v1_capability_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_proactive_platform_v1_capability_proto_goTypes = []any{
 	(ServiceCapabilityKind)(0),                   // 0: proactive.platform.v1.ServiceCapabilityKind
 	(ProviderHealthState)(0),                     // 1: proactive.platform.v1.ProviderHealthState
 	(ProviderHealthReason)(0),                    // 2: proactive.platform.v1.ProviderHealthReason
-	(*RegisterCapabilityProviderRequest)(nil),    // 3: proactive.platform.v1.RegisterCapabilityProviderRequest
-	(*RegisterCapabilityProviderResponse)(nil),   // 4: proactive.platform.v1.RegisterCapabilityProviderResponse
-	(*HeartbeatCapabilityProviderRequest)(nil),   // 5: proactive.platform.v1.HeartbeatCapabilityProviderRequest
-	(*HeartbeatCapabilityProviderResponse)(nil),  // 6: proactive.platform.v1.HeartbeatCapabilityProviderResponse
-	(*UnregisterCapabilityProviderRequest)(nil),  // 7: proactive.platform.v1.UnregisterCapabilityProviderRequest
-	(*UnregisterCapabilityProviderResponse)(nil), // 8: proactive.platform.v1.UnregisterCapabilityProviderResponse
-	(*timestamppb.Timestamp)(nil),                // 9: google.protobuf.Timestamp
+	(ProviderPrivacyClass)(0),                    // 3: proactive.platform.v1.ProviderPrivacyClass
+	(ProviderCancellationSemantics)(0),           // 4: proactive.platform.v1.ProviderCancellationSemantics
+	(ProviderDeviceClass)(0),                     // 5: proactive.platform.v1.ProviderDeviceClass
+	(*ProviderOperationalProfile)(nil),           // 6: proactive.platform.v1.ProviderOperationalProfile
+	(*RegisterCapabilityProviderRequest)(nil),    // 7: proactive.platform.v1.RegisterCapabilityProviderRequest
+	(*RegisterCapabilityProviderResponse)(nil),   // 8: proactive.platform.v1.RegisterCapabilityProviderResponse
+	(*HeartbeatCapabilityProviderRequest)(nil),   // 9: proactive.platform.v1.HeartbeatCapabilityProviderRequest
+	(*HeartbeatCapabilityProviderResponse)(nil),  // 10: proactive.platform.v1.HeartbeatCapabilityProviderResponse
+	(*UnregisterCapabilityProviderRequest)(nil),  // 11: proactive.platform.v1.UnregisterCapabilityProviderRequest
+	(*UnregisterCapabilityProviderResponse)(nil), // 12: proactive.platform.v1.UnregisterCapabilityProviderResponse
+	(*durationpb.Duration)(nil),                  // 13: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),                // 14: google.protobuf.Timestamp
 }
 var file_proactive_platform_v1_capability_proto_depIdxs = []int32{
-	0,  // 0: proactive.platform.v1.RegisterCapabilityProviderRequest.capabilities:type_name -> proactive.platform.v1.ServiceCapabilityKind
-	1,  // 1: proactive.platform.v1.RegisterCapabilityProviderRequest.health:type_name -> proactive.platform.v1.ProviderHealthState
-	2,  // 2: proactive.platform.v1.RegisterCapabilityProviderRequest.health_reason:type_name -> proactive.platform.v1.ProviderHealthReason
-	9,  // 3: proactive.platform.v1.RegisterCapabilityProviderResponse.expires_at:type_name -> google.protobuf.Timestamp
-	1,  // 4: proactive.platform.v1.HeartbeatCapabilityProviderRequest.health:type_name -> proactive.platform.v1.ProviderHealthState
-	2,  // 5: proactive.platform.v1.HeartbeatCapabilityProviderRequest.health_reason:type_name -> proactive.platform.v1.ProviderHealthReason
-	9,  // 6: proactive.platform.v1.HeartbeatCapabilityProviderResponse.expires_at:type_name -> google.protobuf.Timestamp
-	3,  // 7: proactive.platform.v1.CapabilityProviderRegistryService.RegisterCapabilityProvider:input_type -> proactive.platform.v1.RegisterCapabilityProviderRequest
-	5,  // 8: proactive.platform.v1.CapabilityProviderRegistryService.HeartbeatCapabilityProvider:input_type -> proactive.platform.v1.HeartbeatCapabilityProviderRequest
-	7,  // 9: proactive.platform.v1.CapabilityProviderRegistryService.UnregisterCapabilityProvider:input_type -> proactive.platform.v1.UnregisterCapabilityProviderRequest
-	4,  // 10: proactive.platform.v1.CapabilityProviderRegistryService.RegisterCapabilityProvider:output_type -> proactive.platform.v1.RegisterCapabilityProviderResponse
-	6,  // 11: proactive.platform.v1.CapabilityProviderRegistryService.HeartbeatCapabilityProvider:output_type -> proactive.platform.v1.HeartbeatCapabilityProviderResponse
-	8,  // 12: proactive.platform.v1.CapabilityProviderRegistryService.UnregisterCapabilityProvider:output_type -> proactive.platform.v1.UnregisterCapabilityProviderResponse
-	10, // [10:13] is the sub-list for method output_type
-	7,  // [7:10] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	3,  // 0: proactive.platform.v1.ProviderOperationalProfile.privacy_class:type_name -> proactive.platform.v1.ProviderPrivacyClass
+	13, // 1: proactive.platform.v1.ProviderOperationalProfile.maximum_latency:type_name -> google.protobuf.Duration
+	4,  // 2: proactive.platform.v1.ProviderOperationalProfile.cancellation_semantics:type_name -> proactive.platform.v1.ProviderCancellationSemantics
+	5,  // 3: proactive.platform.v1.ProviderOperationalProfile.device_requirements:type_name -> proactive.platform.v1.ProviderDeviceClass
+	0,  // 4: proactive.platform.v1.RegisterCapabilityProviderRequest.capabilities:type_name -> proactive.platform.v1.ServiceCapabilityKind
+	1,  // 5: proactive.platform.v1.RegisterCapabilityProviderRequest.health:type_name -> proactive.platform.v1.ProviderHealthState
+	2,  // 6: proactive.platform.v1.RegisterCapabilityProviderRequest.health_reason:type_name -> proactive.platform.v1.ProviderHealthReason
+	6,  // 7: proactive.platform.v1.RegisterCapabilityProviderRequest.operational_profile:type_name -> proactive.platform.v1.ProviderOperationalProfile
+	14, // 8: proactive.platform.v1.RegisterCapabilityProviderResponse.expires_at:type_name -> google.protobuf.Timestamp
+	1,  // 9: proactive.platform.v1.HeartbeatCapabilityProviderRequest.health:type_name -> proactive.platform.v1.ProviderHealthState
+	2,  // 10: proactive.platform.v1.HeartbeatCapabilityProviderRequest.health_reason:type_name -> proactive.platform.v1.ProviderHealthReason
+	14, // 11: proactive.platform.v1.HeartbeatCapabilityProviderResponse.expires_at:type_name -> google.protobuf.Timestamp
+	7,  // 12: proactive.platform.v1.CapabilityProviderRegistryService.RegisterCapabilityProvider:input_type -> proactive.platform.v1.RegisterCapabilityProviderRequest
+	9,  // 13: proactive.platform.v1.CapabilityProviderRegistryService.HeartbeatCapabilityProvider:input_type -> proactive.platform.v1.HeartbeatCapabilityProviderRequest
+	11, // 14: proactive.platform.v1.CapabilityProviderRegistryService.UnregisterCapabilityProvider:input_type -> proactive.platform.v1.UnregisterCapabilityProviderRequest
+	8,  // 15: proactive.platform.v1.CapabilityProviderRegistryService.RegisterCapabilityProvider:output_type -> proactive.platform.v1.RegisterCapabilityProviderResponse
+	10, // 16: proactive.platform.v1.CapabilityProviderRegistryService.HeartbeatCapabilityProvider:output_type -> proactive.platform.v1.HeartbeatCapabilityProviderResponse
+	12, // 17: proactive.platform.v1.CapabilityProviderRegistryService.UnregisterCapabilityProvider:output_type -> proactive.platform.v1.UnregisterCapabilityProviderResponse
+	15, // [15:18] is the sub-list for method output_type
+	12, // [12:15] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_proactive_platform_v1_capability_proto_init() }
@@ -702,8 +984,8 @@ func file_proactive_platform_v1_capability_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proactive_platform_v1_capability_proto_rawDesc), len(file_proactive_platform_v1_capability_proto_rawDesc)),
-			NumEnums:      3,
-			NumMessages:   6,
+			NumEnums:      6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

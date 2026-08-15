@@ -28,6 +28,10 @@ class ProviderSessionTest(unittest.TestCase):
                 instance_id="presence-worker-1",
                 capability=capability_pb2.SERVICE_CAPABILITY_KIND_PERSON_PRESENCE,
                 implementation_version="camera.v1",
+                privacy_class=capability_pb2.PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL,
+                maximum_latency=datetime.timedelta(seconds=3),
+                cancellation_semantics=capability_pb2.PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE,
+                device_requirements=(capability_pb2.PROVIDER_DEVICE_CLASS_CAMERA,),
                 subject_id="user-1",
                 observation_ttl=datetime.timedelta(seconds=2),
                 heartbeat_interval=datetime.timedelta(seconds=5),
@@ -47,12 +51,67 @@ class ProviderSessionTest(unittest.TestCase):
         self.assertEqual(registration.instance_id, "presence-worker-1")
         self.assertEqual(registration.protocol_version, "v1")
         self.assertEqual(registration.capabilities, [capability_pb2.SERVICE_CAPABILITY_KIND_PERSON_PRESENCE])
+        self.assertEqual(
+            registration.operational_profile.privacy_class,
+            capability_pb2.PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL,
+        )
+        self.assertEqual(
+            registration.operational_profile.maximum_latency.ToTimedelta(),
+            datetime.timedelta(seconds=3),
+        )
+        self.assertEqual(
+            registration.operational_profile.cancellation_semantics,
+            capability_pb2.PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE,
+        )
+        self.assertEqual(
+            registration.operational_profile.device_requirements,
+            [capability_pb2.PROVIDER_DEVICE_CLASS_CAMERA],
+        )
         self.assertEqual(registration.health, capability_pb2.PROVIDER_HEALTH_STATE_UNHEALTHY)
         self.assertEqual(registration.health_reason, capability_pb2.PROVIDER_HEALTH_REASON_STARTING)
         heartbeat = self.registry.heartbeats[0][0]
         self.assertEqual(heartbeat.health, capability_pb2.PROVIDER_HEALTH_STATE_HEALTHY)
         self.assertEqual(heartbeat.health_reason, capability_pb2.PROVIDER_HEALTH_REASON_NONE)
         self.assertTrue(self.session.active)
+
+    def test_config_rejects_invalid_operational_profile(self):
+        valid = dict(
+            provider_id="provider",
+            instance_id="instance",
+            capability=capability_pb2.SERVICE_CAPABILITY_KIND_PERSON_PRESENCE,
+            implementation_version="implementation.v1",
+            privacy_class=capability_pb2.PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL,
+            maximum_latency=datetime.timedelta(seconds=1),
+            cancellation_semantics=capability_pb2.PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE,
+            device_requirements=(capability_pb2.PROVIDER_DEVICE_CLASS_CAMERA,),
+            subject_id="user-1",
+            observation_ttl=datetime.timedelta(seconds=1),
+        )
+        invalid = (
+            ("privacy_class", capability_pb2.PROVIDER_PRIVACY_CLASS_UNSPECIFIED),
+            ("maximum_latency", datetime.timedelta(0)),
+            (
+                "cancellation_semantics",
+                capability_pb2.PROVIDER_CANCELLATION_SEMANTICS_UNSPECIFIED,
+            ),
+            (
+                "device_requirements",
+                (capability_pb2.PROVIDER_DEVICE_CLASS_UNSPECIFIED,),
+            ),
+            (
+                "device_requirements",
+                (
+                    capability_pb2.PROVIDER_DEVICE_CLASS_CAMERA,
+                    capability_pb2.PROVIDER_DEVICE_CLASS_CAMERA,
+                ),
+            ),
+        )
+        for field, value in invalid:
+            with self.subTest(field=field, value=value):
+                config = dict(valid)
+                config[field] = value
+                with self.assertRaises(ValueError):
+                    ProviderConfig(**config)
 
     def test_publish_uses_monotonic_sequence_uuid_utc_ttl_and_lease(self):
         self.session.start()

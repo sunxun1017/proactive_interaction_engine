@@ -255,6 +255,10 @@ func registerIngressIntegrationProvider(
 	capability platformv1.ServiceCapabilityKind,
 ) string {
 	t.Helper()
+	device := platformv1.ProviderDeviceClass_PROVIDER_DEVICE_CLASS_CAMERA
+	if capability == platformv1.ServiceCapabilityKind_SERVICE_CAPABILITY_KIND_VOICE_ACTIVITY {
+		device = platformv1.ProviderDeviceClass_PROVIDER_DEVICE_CLASS_MICROPHONE
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	response, err := client.RegisterCapabilityProvider(ctx, &platformv1.RegisterCapabilityProviderRequest{
@@ -265,6 +269,12 @@ func registerIngressIntegrationProvider(
 		Capabilities:          []platformv1.ServiceCapabilityKind{capability},
 		Health:                platformv1.ProviderHealthState_PROVIDER_HEALTH_STATE_HEALTHY,
 		HealthReason:          platformv1.ProviderHealthReason_PROVIDER_HEALTH_REASON_NONE,
+		OperationalProfile: &platformv1.ProviderOperationalProfile{
+			PrivacyClass:          platformv1.ProviderPrivacyClass_PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL,
+			MaximumLatency:        durationpb.New(time.Second),
+			CancellationSemantics: platformv1.ProviderCancellationSemantics_PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE,
+			DeviceRequirements:    []platformv1.ProviderDeviceClass{device},
+		},
 	})
 	if err != nil {
 		t.Fatalf("RegisterCapabilityProvider(%s) error = %v", providerID, err)

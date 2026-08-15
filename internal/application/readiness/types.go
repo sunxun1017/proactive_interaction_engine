@@ -73,6 +73,46 @@ const (
 	Unhealthy ProviderHealth = "UNHEALTHY"
 )
 
+// ProviderPrivacyClass describes where a provider processes its inputs.
+type ProviderPrivacyClass string
+
+const (
+	ProviderPrivacyDeviceLocal      ProviderPrivacyClass = "DEVICE_LOCAL"
+	ProviderPrivacyRemoteProcessing ProviderPrivacyClass = "REMOTE_PROCESSING"
+)
+
+// ProviderCancellationSemantics describes the provider's weakest software
+// cancellation guarantee. It does not describe a physical emergency stop.
+type ProviderCancellationSemantics string
+
+const (
+	ProviderCancellationNotSupported ProviderCancellationSemantics = "NOT_SUPPORTED"
+	ProviderCancellationCooperative  ProviderCancellationSemantics = "COOPERATIVE"
+	ProviderCancellationBounded      ProviderCancellationSemantics = "BOUNDED"
+)
+
+// ProviderDeviceClass identifies a direct device dependency without exposing
+// adapter-specific paths, handles, or vendor identifiers.
+type ProviderDeviceClass string
+
+const (
+	ProviderDeviceCamera               ProviderDeviceClass = "CAMERA"
+	ProviderDeviceMicrophone           ProviderDeviceClass = "MICROPHONE"
+	ProviderDeviceDisplay              ProviderDeviceClass = "DISPLAY"
+	ProviderDeviceAudioOutput          ProviderDeviceClass = "AUDIO_OUTPUT"
+	ProviderDeviceEmbodimentController ProviderDeviceClass = "EMBODIMENT_CONTROLLER"
+)
+
+// ProviderOperationalProfile is a conservative envelope across all
+// capabilities declared by one provider. Registry boundaries reject an
+// undeclared or incomplete profile.
+type ProviderOperationalProfile struct {
+	PrivacyClass          ProviderPrivacyClass
+	MaximumLatency        time.Duration
+	CancellationSemantics ProviderCancellationSemantics
+	DeviceRequirements    []ProviderDeviceClass
+}
+
 // ProviderSnapshot is an immutable view of one deployed provider instance.
 type ProviderSnapshot struct {
 	ProviderID            string
@@ -82,6 +122,7 @@ type ProviderSnapshot struct {
 	Capabilities          []CapabilityKind
 	Health                ProviderHealth
 	LeaseExpiresAt        time.Time
+	OperationalProfile    ProviderOperationalProfile
 }
 
 // BiometricPolicySnapshot is the aggregate authorization view used by Stage

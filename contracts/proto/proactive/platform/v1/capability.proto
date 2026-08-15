@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package proactive.platform.v1;
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "proactive-interaction-engine/gen/go/proactive/platform/v1;platformv1";
@@ -62,6 +63,47 @@ enum ProviderHealthReason {
   PROVIDER_HEALTH_REASON_SHUTTING_DOWN = 8;
 }
 
+// ProviderPrivacyClass describes the provider's processing locality. Separate
+// capability permissions still authorize whether sensitive processing may run.
+enum ProviderPrivacyClass {
+  PROVIDER_PRIVACY_CLASS_UNSPECIFIED = 0;
+  PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL = 1;
+  PROVIDER_PRIVACY_CLASS_REMOTE_PROCESSING = 2;
+}
+
+// ProviderCancellationSemantics describes the weakest cancellation guarantee
+// across the provider's declared capabilities. It is software cancellation,
+// not a physical emergency-stop guarantee.
+enum ProviderCancellationSemantics {
+  PROVIDER_CANCELLATION_SEMANTICS_UNSPECIFIED = 0;
+  PROVIDER_CANCELLATION_SEMANTICS_NOT_SUPPORTED = 1;
+  PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE = 2;
+  PROVIDER_CANCELLATION_SEMANTICS_BOUNDED = 3;
+}
+
+// ProviderDeviceClass declares direct device dependencies without exposing
+// adapter-specific paths, handles, vendor identifiers, or platform APIs.
+enum ProviderDeviceClass {
+  PROVIDER_DEVICE_CLASS_UNSPECIFIED = 0;
+  PROVIDER_DEVICE_CLASS_CAMERA = 1;
+  PROVIDER_DEVICE_CLASS_MICROPHONE = 2;
+  PROVIDER_DEVICE_CLASS_DISPLAY = 3;
+  PROVIDER_DEVICE_CLASS_AUDIO_OUTPUT = 4;
+  PROVIDER_DEVICE_CLASS_EMBODIMENT_CONTROLLER = 5;
+}
+
+// ProviderOperationalProfile is a conservative provider-wide envelope:
+// privacy is the most exposed class, maximum_latency is the slowest upper
+// bound, cancellation_semantics is the weakest guarantee, and device
+// requirements are the union across declared capabilities.
+message ProviderOperationalProfile {
+  ProviderPrivacyClass privacy_class = 1;
+  google.protobuf.Duration maximum_latency = 2;
+  ProviderCancellationSemantics cancellation_semantics = 3;
+  // Entries must be non-UNSPECIFIED and unique.
+  repeated ProviderDeviceClass device_requirements = 4;
+}
+
 message RegisterCapabilityProviderRequest {
   string provider_id = 1;
   string instance_id = 2;
@@ -71,6 +113,9 @@ message RegisterCapabilityProviderRequest {
   repeated ServiceCapabilityKind capabilities = 5;
   ProviderHealthState health = 6;
   ProviderHealthReason health_reason = 7;
+  // Required by the v1 registry boundary; every field is validated fail
+  // closed. Message presence lets the boundary distinguish omission.
+  ProviderOperationalProfile operational_profile = 8;
 }
 
 message RegisterCapabilityProviderResponse {

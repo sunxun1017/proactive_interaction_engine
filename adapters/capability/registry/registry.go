@@ -99,6 +99,7 @@ func (r *Registry) RegisterCapabilityProvider(ctx context.Context, request *plat
 			ProtocolVersion:       declaration.protocolVersion,
 			ImplementationVersion: declaration.implementationVersion,
 			Capabilities:          cloneCapabilities(declaration.capabilities),
+			OperationalProfile:    cloneOperationalProfile(declaration.operationalProfile),
 			Health:                declaration.health,
 			LeaseExpiresAt:        expiresAt,
 		},
@@ -207,6 +208,7 @@ func (r *Registry) snapshotsLocked() []readiness.ProviderSnapshot {
 	for _, record := range r.byProvider {
 		snapshot := record.snapshot
 		snapshot.Capabilities = cloneCapabilities(record.snapshot.Capabilities)
+		snapshot.OperationalProfile = cloneOperationalProfile(record.snapshot.OperationalProfile)
 		snapshots = append(snapshots, snapshot)
 	}
 	sort.Slice(snapshots, func(i, j int) bool {
@@ -242,6 +244,7 @@ func (r *Registry) LeaseSnapshot(leaseID string) (readiness.ProviderSnapshot, bo
 	}
 	snapshot := record.snapshot
 	snapshot.Capabilities = cloneCapabilities(record.snapshot.Capabilities)
+	snapshot.OperationalProfile = cloneOperationalProfile(record.snapshot.OperationalProfile)
 	return snapshot, true
 }
 
@@ -271,6 +274,7 @@ func sameDeclaration(left, right registrationDeclaration) bool {
 		left.implementationVersion != right.implementationVersion ||
 		left.health != right.health ||
 		left.healthReason != right.healthReason ||
+		!sameOperationalProfile(left.operationalProfile, right.operationalProfile) ||
 		len(left.capabilities) != len(right.capabilities) {
 		return false
 	}
@@ -304,6 +308,26 @@ func (r *Registry) newLeaseIDLocked() (string, error) {
 
 func cloneCapabilities(input []readiness.CapabilityKind) []readiness.CapabilityKind {
 	return append([]readiness.CapabilityKind(nil), input...)
+}
+
+func cloneOperationalProfile(input readiness.ProviderOperationalProfile) readiness.ProviderOperationalProfile {
+	input.DeviceRequirements = append([]readiness.ProviderDeviceClass(nil), input.DeviceRequirements...)
+	return input
+}
+
+func sameOperationalProfile(left, right readiness.ProviderOperationalProfile) bool {
+	if left.PrivacyClass != right.PrivacyClass ||
+		left.MaximumLatency != right.MaximumLatency ||
+		left.CancellationSemantics != right.CancellationSemantics ||
+		len(left.DeviceRequirements) != len(right.DeviceRequirements) {
+		return false
+	}
+	for index := range left.DeviceRequirements {
+		if left.DeviceRequirements[index] != right.DeviceRequirements[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func contextStatus(ctx context.Context) error {

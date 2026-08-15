@@ -87,6 +87,15 @@ func TestGeneratedGRPCRegisterRoundTrip(t *testing.T) {
 		Capabilities:          []readiness.CapabilityKind{readiness.PersonPresence},
 		Health:                readiness.Healthy,
 		LeaseExpiresAt:        testNow().Add(time.Minute),
+		OperationalProfile: readiness.ProviderOperationalProfile{
+			PrivacyClass:          readiness.ProviderPrivacyDeviceLocal,
+			MaximumLatency:        250 * time.Millisecond,
+			CancellationSemantics: readiness.ProviderCancellationBounded,
+			DeviceRequirements: []readiness.ProviderDeviceClass{
+				readiness.ProviderDeviceCamera,
+				readiness.ProviderDeviceMicrophone,
+			},
+		},
 	}
 	if len(snapshots) != 1 || !reflect.DeepEqual(snapshots[0], want) {
 		t.Fatalf("Snapshots() = %#v, want %#v", snapshots, want)
