@@ -383,6 +383,47 @@ func TestAdvanceAtCancelledContextHasNoSideEffects(t *testing.T) {
 	}
 }
 
+func TestAdvanceAtCancellationBeforeCommitKeepsWakeupPending(t *testing.T) {
+	engine, clock, driver, audit := newTestEngineWithCooldown(t, 30*time.Minute)
+	processOK(t, engine, presenceObservation("left-cancel-before-commit", 1, clock.Now(), false))
+	clock.Advance(45 * time.Minute)
+	processOK(t, engine, presenceObservation("returned-cancel-before-commit", 2, clock.Now(), true))
+	wakeup, _ := engine.NextWakeup()
+	clock.Advance(8 * time.Second)
+	beforeState, beforeAudit := engine.Snapshot(), audit.Snapshot()
+	ctx := newCancelAfterFirstErrContext()
+
+	if _, err := engine.AdvanceAt(ctx, wakeup); err == nil {
+		t.Fatal("AdvanceAt(cancelled before commit) error = nil")
+	}
+	if engine.Snapshot() != beforeState || !reflect.DeepEqual(audit.Snapshot(), beforeAudit) || len(driver.Commands()) != 3 {
+		t.Fatal("cancellation before commit changed state, audit, or actions")
+	}
+	if got, ok := engine.NextWakeup(); !ok || got != wakeup {
+		t.Fatalf("NextWakeup() = %#v, %t", got, ok)
+	}
+}
+
+type cancelAfterFirstErrContext struct {
+	context.Context
+	cancel context.CancelFunc
+	first  bool
+}
+
+func newCancelAfterFirstErrContext() *cancelAfterFirstErrContext {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &cancelAfterFirstErrContext{Context: ctx, cancel: cancel, first: true}
+}
+
+func (c *cancelAfterFirstErrContext) Err() error {
+	err := c.Context.Err()
+	if c.first {
+		c.first = false
+		c.cancel()
+	}
+	return err
+}
+
 func newTestEngine(t *testing.T) (*Engine, *engineclock.Fake, *fakeembodiment.Driver) {
 	t.Helper()
 	engine, clock, driver, _ := newTestEngineWithCooldown(t, 30*time.Minute)

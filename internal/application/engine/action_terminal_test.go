@@ -9,6 +9,7 @@ import (
 	memorystorage "proactive-interaction-engine/adapters/storage/memory"
 	"proactive-interaction-engine/internal/domain/behavior"
 	"proactive-interaction-engine/internal/domain/control"
+	"proactive-interaction-engine/internal/domain/episode"
 	"proactive-interaction-engine/internal/domain/fault"
 	engineclock "proactive-interaction-engine/internal/runtime/clock"
 )
@@ -117,6 +118,38 @@ func TestCompletedPrePhaseStreamsStillOpenReplyWindow(t *testing.T) {
 	}
 }
 
+func TestCancelledPrePhaseKeepsEpisodeForRejectionCommit(t *testing.T) {
+	clock := engineclock.NewFake(time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC))
+	driver := &cancelledPrePhaseDriver{clock: clock, started: make(chan struct{}, 1)}
+	audit := &memorystorage.AuditRecorder{}
+	core, err := New(validTestConfig(), driver, audit, clock)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	processOK(t, core, presenceObservation("left-before-rejection", 1, clock.Now(), false))
+	clock.Advance(45 * time.Minute)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	processDone := make(chan error, 1)
+	go func() {
+		_, processErr := core.Process(ctx, presenceObservation("returned-before-rejection", 2, clock.Now(), true))
+		processDone <- processErr
+	}()
+	<-driver.started
+	cancel()
+	if processErr := <-processDone; !fault.IsCode(processErr, fault.Unavailable) {
+		t.Fatalf("Process() cancellation error = %v, want Unavailable", processErr)
+	}
+
+	if err := core.CommitUserRejection(context.Background(), rejectionControl("reject-during-pre-phase", clock.Now())); err != nil {
+		t.Fatalf("CommitUserRejection() error = %v", err)
+	}
+	got := audit.Snapshot()
+	if len(got.Outcomes) != 1 || got.Outcomes[0].Kind != episode.Rejected {
+		t.Fatalf("audited outcomes = %#v, want one REJECTED", got.Outcomes)
+	}
+}
+
 func assertTerminalFailureState(
 	t *testing.T,
 	core *Engine,
@@ -142,6 +175,19 @@ func assertTerminalFailureState(
 	if wakeup, ok := core.NextWakeup(); ok {
 		t.Fatalf("NextWakeup() = %#v, want none", wakeup)
 	}
+
+	processOK(t, core, presenceObservation("left-after-terminal-failure", 3, driver.clock.Now(), false))
+	driver.clock.Advance(45 * time.Minute)
+	recovered, err := core.Process(context.Background(), presenceObservation("returned-after-terminal-failure", 4, driver.clock.Now(), true))
+	if err != nil {
+		t.Fatalf("Process() after terminal failure error = %v", err)
+	}
+	if len(recovered.Plans) != 1 {
+		t.Fatalf("Process() after terminal failure plans = %#v, want one", recovered.Plans)
+	}
+	if _, ok := core.NextWakeup(); !ok {
+		t.Fatal("Process() after terminal failure did not open a new reply window")
+	}
 }
 
 func newActionTerminalTestEngine(
@@ -164,6 +210,28 @@ type scriptedStatusDriver struct {
 	firstStates []behavior.ActionState
 	commands    []behavior.ActionCommand
 }
+
+type cancelledPrePhaseDriver struct {
+	clock   *engineclock.Fake
+	started chan struct{}
+}
+
+func (d *cancelledPrePhaseDriver) Capabilities(ctx context.Context) (behavior.Capabilities, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return desktopTestCapabilities(), nil
+}
+
+func (d *cancelledPrePhaseDriver) Execute(ctx context.Context, _ behavior.ActionCommand) (<-chan behavior.ActionStatus, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	d.started <- struct{}{}
+	return make(chan behavior.ActionStatus), nil
+}
+
+func (d *cancelledPrePhaseDriver) StopAll(context.Context, control.StopReason) error { return nil }
 
 func (d *scriptedStatusDriver) Capabilities(ctx context.Context) (behavior.Capabilities, error) {
 	if err := ctx.Err(); err != nil {

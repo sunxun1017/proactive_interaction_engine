@@ -156,6 +156,32 @@ func (t *Tracker) OpenResponseWindow(episodeID, wakeupToken string, openedAt tim
 	return nil
 }
 
+// AbortUndelivered releases an Episode whose initial actions did not complete.
+// It never creates an Outcome because no user feedback was observed. Once a
+// response window is open, only a correlated feedback or expiration fact may
+// end the Episode.
+func (t *Tracker) AbortUndelivered(expectedEpisodeID string) (bool, error) {
+	const op = "abort undelivered episode"
+	if expectedEpisodeID == "" {
+		return false, fault.New(fault.InvalidInput, op, errors.New("expected episode id is required"))
+	}
+	if t.active == nil {
+		return false, nil
+	}
+	if t.active.ID != expectedEpisodeID {
+		return false, fault.New(
+			fault.InvalidInput,
+			op,
+			fmt.Errorf("expected episode %s does not match active episode %s", expectedEpisodeID, t.active.ID),
+		)
+	}
+	if t.responseWindow != nil {
+		return false, fault.New(fault.PolicyBlocked, op, errors.New("active episode already has a response window"))
+	}
+	t.active = nil
+	return true, nil
+}
+
 // Expire evaluates a correlated response-window expiration. Before the
 // deadline it makes no state change, so the same wakeup may retry at deadline.
 func (t *Tracker) Expire(expectedEpisodeID string, input event.SemanticEvent) (*Outcome, bool, error) {

@@ -167,6 +167,13 @@ func (e *Engine) Process(ctx context.Context, input observation.Observation) (Re
 		statuses, err := e.dispatchCommands(ctx, phases.Before.Commands(e.clock.Now()))
 		result.ActionStatuses = append(result.ActionStatuses, statuses...)
 		if err != nil {
+			// A P0 cancellation deliberately leaves the Episode active so Runner can
+			// join this work and then commit the correlated rejection Outcome.
+			if ctx.Err() == nil {
+				if _, abortErr := e.episodes.AbortUndelivered(episodeID); abortErr != nil {
+					return result, errors.Join(err, fmt.Errorf("abort undelivered episode %s: %w", episodeID, abortErr))
+				}
+			}
 			return result, err
 		}
 		openedAt := e.clock.Now()
@@ -175,7 +182,11 @@ func (e *Engine) Process(ctx context.Context, input observation.Observation) (Re
 			Deadline: openedAt.Add(phases.WaitFor),
 		}
 		if err := e.episodes.OpenResponseWindow(episodeID, wakeup.Token, openedAt, phases.WaitFor); err != nil {
-			return result, fmt.Errorf("open reply window for episode %s: %w", episodeID, err)
+			windowErr := fmt.Errorf("open reply window for episode %s: %w", episodeID, err)
+			if _, abortErr := e.episodes.AbortUndelivered(episodeID); abortErr != nil {
+				return result, errors.Join(windowErr, fmt.Errorf("abort undelivered episode %s: %w", episodeID, abortErr))
+			}
+			return result, windowErr
 		}
 		e.pendingReply = &pendingReplyContinuation{
 			episodeID:     episodeID,
@@ -224,6 +235,12 @@ func (e *Engine) AdvanceAt(ctx context.Context, wakeup Wakeup) (Result, error) {
 	)
 	if err != nil {
 		return Result{}, fmt.Errorf("construct response window expiration: %w", err)
+	}
+	// This is the expiration transaction's commit gate. Cancellation observed
+	// here leaves the Episode, cooldown, and continuation untouched so a queued
+	// P0 rejection can commit after Runner joins this work.
+	if err := ctx.Err(); err != nil {
+		return Result{}, classifyContext("advance wakeup", err)
 	}
 	outcome, applied, err := e.episodes.Expire(pending.episodeID, expired)
 	if err != nil {

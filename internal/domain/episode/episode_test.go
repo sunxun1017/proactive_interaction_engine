@@ -100,6 +100,47 @@ func TestTrackerStartIsIdempotentButDoesNotReplaceActiveEpisode(t *testing.T) {
 	}
 }
 
+func TestTrackerAbortsOnlyMatchingUndeliveredEpisode(t *testing.T) {
+	startedAt := time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC)
+	tracker := trackerWithEpisode(t, startedAt)
+
+	if _, err := tracker.AbortUndelivered(""); !fault.IsCode(err, fault.InvalidInput) {
+		t.Fatalf("AbortUndelivered(empty) error = %v, want InvalidInput", err)
+	}
+	if _, err := tracker.AbortUndelivered("episode-other"); !fault.IsCode(err, fault.InvalidInput) {
+		t.Fatalf("AbortUndelivered(other) error = %v, want InvalidInput", err)
+	}
+	aborted, err := tracker.AbortUndelivered("episode-1")
+	if err != nil || !aborted {
+		t.Fatalf("AbortUndelivered() = %t, %v", aborted, err)
+	}
+	if aborted, err := tracker.AbortUndelivered("episode-1"); err != nil || aborted {
+		t.Fatalf("AbortUndelivered(retry) = %t, %v", aborted, err)
+	}
+
+	next := Episode{
+		ID: "episode-2", InteractionID: "interaction-2", SubjectID: "user-1",
+		DecisionID: "decision-2", TriggerEventID: "event-2", TraceID: "trace-2",
+		ConfigHash: "config-1", StartedAt: startedAt.Add(time.Minute),
+	}
+	if err := tracker.Start(next); err != nil {
+		t.Fatalf("Start() after abort error = %v", err)
+	}
+}
+
+func TestTrackerDoesNotAbortEpisodeWithOpenResponseWindow(t *testing.T) {
+	openedAt := time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC)
+	tracker := trackerWithOpenWindow(t, openedAt)
+	if _, err := tracker.AbortUndelivered("episode-1"); !fault.IsCode(err, fault.PolicyBlocked) {
+		t.Fatalf("AbortUndelivered(open window) error = %v, want PolicyBlocked", err)
+	}
+
+	got, applied, err := tracker.Reject(userRejection(t, "rejection-after-abort", openedAt.Add(time.Second)))
+	if err != nil || !applied || got == nil || got.EpisodeID != "episode-1" {
+		t.Fatalf("Reject() after blocked abort = (%#v, %t), %v", got, applied, err)
+	}
+}
+
 func TestTrackerDoesNotEndActiveEpisodeForEarlierFeedback(t *testing.T) {
 	startedAt := time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC)
 	tracker := NewTracker()
