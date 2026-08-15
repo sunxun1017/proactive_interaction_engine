@@ -1,5 +1,10 @@
 GO ?= go
 BUF ?= buf
+CONDA ?= conda
+
+MEDIA_ENV := $(CURDIR)/.conda-gpu
+MEDIA_PYTHON := $(MEDIA_ENV)/bin/python
+MEDIA_CUDA_DEVICE ?= 0
 
 .PHONY: fmt fmt-check vet test race architecture proto proto-generate proto-check web-build web-check media-env media-test staticcheck check simulator conformance docker-check
 
@@ -40,12 +45,11 @@ web-check:
 	GOOS=js GOARCH=wasm $(GO) vet ./web/desktop/cmd/panel
 
 media-env:
-	/usr/bin/python3 -m virtualenv --clear .venv-media
-	.venv-media/bin/python -m pip install --requirement workers/requirements-media.txt
-	.venv-media/bin/python -c 'import cv2, grpc, numpy, webrtcvad'
+	$(CONDA) env update --prefix "$(MEDIA_ENV)" --file environment.gpu.yml --prune
+	$(MEDIA_PYTHON) -c 'import cv2, grpc, numpy, onnxruntime, torch, torchaudio, webrtcvad; device = torch.device("cuda:$(MEDIA_CUDA_DEVICE)"); assert torch.cuda.is_available() and device.index < torch.cuda.device_count(); assert (torch.tensor([3.0], device=device) * 4).item() == 12.0; assert "CUDAExecutionProvider" in onnxruntime.get_available_providers()'
 
 media-test:
-	PYTHONPATH="$(CURDIR)/gen/python:$(CURDIR)" .venv-media/bin/python -m unittest discover -s workers -p 'test_*.py'
+	PYTHONPATH="$(CURDIR)/gen/python:$(CURDIR)" $(MEDIA_PYTHON) -m unittest discover -s workers -p 'test_*.py'
 
 staticcheck:
 	staticcheck ./...

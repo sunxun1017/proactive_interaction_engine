@@ -59,7 +59,7 @@ make web-build
 go run ./cmd/desktop
 ```
 
-`cmd/desktop` 只监听 loopback，worker 只连接随机私有 UDS。摄像头和麦克风首次均为关闭状态；在 Web 面板分别授权后才启动对应进程，撤权或退出会停止并 join 子进程。默认显式设备是 `/dev/video0`，音频使用 PulseAudio `pacat`；首版不会在多个摄像头间静默选择。`make media-env` 在仓库内创建被 Git 忽略的 Python 3.10 venv，不使用全局 pip。
+`cmd/desktop` 只监听 loopback，worker 只连接随机私有 UDS。摄像头和麦克风首次均为关闭状态；在 Web 面板分别授权后才启动对应进程，撤权或退出会停止并 join 子进程。默认显式设备是 `/dev/video0`，音频使用 PulseAudio `pacat`；首版不会在多个摄像头间静默选择。`make media-env` 根据 `environment.gpu.yml` 在仓库内创建被 Git 忽略的 Python 3.10 Conda 环境 `.conda-gpu`；生物模型只允许在显式 NVIDIA GPU 上运行，CUDA 不可用时关闭相应 Provider，不静默回退 CPU。
 
 ## 目录
 

@@ -1,0 +1,16 @@
+channels:
+  - defaults
+dependencies:
+  - python=3.10.20
+  - pip=26.1.2
+  - zlib=1.3.2
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - grpcio==1.72.1
+      - numpy==1.26.4
+      - onnxruntime-gpu==1.23.2
+      - opencv-python-headless==4.10.0.84
+      - protobuf==7.35.1
+      - torch==2.11.0+cu128
+      - torchaudio==2.11.0+cu128
+      - webrtcvad-wheels==2.0.14

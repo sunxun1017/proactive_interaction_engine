@@ -26,7 +26,7 @@ func main() {
 		WASMExecFile:           absoluteOrInput("dist/web/wasm_exec.js"),
 		TTSBinary:              "/usr/bin/spd-say",
 		RuntimeBaseDir:         filepath.Join("/run/user", fmt.Sprint(os.Getuid())),
-		MediaPython:            absoluteOrInput(".venv-media/bin/python3.10"),
+		MediaPython:            absoluteOrInput(".conda-gpu/bin/python"),
 		MediaRoot:              absoluteOrInput("."),
 		CameraDevice:           "/dev/video0",
 		ParecBinary:            "/usr/bin/pacat",

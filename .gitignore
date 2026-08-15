@@ -2,6 +2,8 @@
 /coverage.out
 /dist/
 /.venv-media/
+/.conda-gpu/
+/.model-cache/
 *.db
 *.db-shm
 *.db-wal

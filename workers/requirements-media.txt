@@ -1,6 +1,0 @@
-# Runtime versions match the checked-in Python Protobuf/gRPC code generation.
-grpcio==1.72.1
-numpy==1.26.4
-opencv-python-headless==4.10.0.84
-protobuf==7.35.1
-webrtcvad-wheels==2.0.14
