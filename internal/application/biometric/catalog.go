@@ -411,7 +411,37 @@ var biometricCapabilityOrder = []readiness.CapabilityKind{
 	readiness.SpeakerVerification,
 }
 
+// CapabilityAuthorized reports whether every global privacy prerequisite for
+// one biometric capability is granted. It does not inspect profile consent or
+// enrollment state.
+func CapabilityAuthorized(snapshot privacy.Snapshot, capability readiness.CapabilityKind) (bool, error) {
+	biometric := false
+	for _, candidate := range biometricCapabilityOrder {
+		if candidate == capability {
+			biometric = true
+			break
+		}
+	}
+	if !biometric {
+		return false, invalidInput("capability %q is not biometric", capability)
+	}
+
+	effective, _, err := biometricPermissions(snapshot)
+	if err != nil {
+		return false, err
+	}
+	_, authorized := effective[capability]
+	return authorized, nil
+}
+
 func biometricPermissions(snapshot privacy.Snapshot) (map[readiness.CapabilityKind]struct{}, bool, error) {
+	if snapshot.Revision == 0 {
+		for _, grant := range snapshot.Grants {
+			if grant.Enabled || !grant.UpdatedAt.IsZero() {
+				return nil, false, invalidInput("revision zero cannot contain changed global permissions")
+			}
+		}
+	}
 	known := make(map[privacy.Permission]struct{}, len(privacy.AllPermissions()))
 	for _, permission := range privacy.AllPermissions() {
 		known[permission] = struct{}{}

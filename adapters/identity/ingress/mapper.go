@@ -10,6 +10,7 @@ import (
 	platformv1 "proactive-interaction-engine/gen/go/proactive/platform/v1"
 	"proactive-interaction-engine/internal/application/identity"
 	"proactive-interaction-engine/internal/application/readiness"
+	"proactive-interaction-engine/internal/domain/fault"
 )
 
 const (
@@ -59,7 +60,7 @@ type speakerVerificationFragment struct {
 	metadata    evidenceMetadata
 	capability  readiness.CapabilityKind
 	challengeID string
-	candidate   identity.SpeakerVerificationCandidate
+	candidate   identity.SpeakerVerificationSubmissionCandidate
 }
 
 func mapFaceDetection(request *platformv1.PublishFaceDetectionEvidenceRequest, now time.Time) (faceDetectionFragment, error) {
@@ -189,7 +190,7 @@ func mapSpeakerVerification(request *platformv1.PublishSpeakerVerificationEviden
 		metadata:    metadata,
 		capability:  readiness.SpeakerVerification,
 		challengeID: request.GetVerificationChallengeId(),
-		candidate: identity.SpeakerVerificationCandidate{
+		candidate: identity.SpeakerVerificationSubmissionCandidate{
 			ID:           request.GetCandidateId(),
 			Score:        request.GetScore(),
 			ModelVersion: request.GetModelVersion(),
@@ -219,7 +220,7 @@ func mapEvidenceMetadata(wire *platformv1.IdentityEvidenceMetadata, now time.Tim
 	}
 	expiresAt := occurredAt.Add(wire.GetTtl().AsDuration())
 	if !expiresAt.After(now) {
-		return evidenceMetadata{}, errors.New("identity evidence is stale")
+		return evidenceMetadata{}, fault.New(fault.StaleInput, "map identity evidence metadata", errors.New("identity evidence ttl expired"))
 	}
 	return evidenceMetadata{
 		fragmentID:       wire.GetFragmentId(),

@@ -10,6 +10,7 @@ import (
 	platformv1 "proactive-interaction-engine/gen/go/proactive/platform/v1"
 	"proactive-interaction-engine/internal/application/identity"
 	"proactive-interaction-engine/internal/application/readiness"
+	"proactive-interaction-engine/internal/domain/fault"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -116,7 +117,7 @@ func TestMapSpeakerVerificationKeepsExpectedProfileApplicationOwned(t *testing.T
 	if err != nil {
 		t.Fatalf("mapSpeakerVerification() error = %v", err)
 	}
-	if mapped.capability != readiness.SpeakerVerification || mapped.challengeID != "challenge-1" || mapped.candidate.ID != "verification-1" || mapped.candidate.ProfileRef != "" || mapped.candidate.Score != 0.94 || mapped.candidate.ModelVersion != "verification.v1" {
+	if mapped.capability != readiness.SpeakerVerification || mapped.challengeID != "challenge-1" || mapped.candidate.ID != "verification-1" || mapped.candidate.Score != 0.94 || mapped.candidate.ModelVersion != "verification.v1" {
 		t.Fatalf("mapped verification = %#v", mapped)
 	}
 	descriptor := request.ProtoReflect().Descriptor()
@@ -207,6 +208,15 @@ func TestEvidenceMappersRejectMalformedOrStaleInput(t *testing.T) {
 				t.Fatal("mapFaceIdentification() error = nil")
 			}
 		})
+	}
+}
+
+func TestEvidenceMapperClassifiesExpiredTTLAsStale(t *testing.T) {
+	now := mapperNow()
+	request := &platformv1.PublishFaceDetectionEvidenceRequest{Metadata: validMetadata(now)}
+	request.Metadata.Ttl = durationpb.New(time.Second)
+	if _, err := mapFaceDetection(request, now); !fault.IsCode(err, fault.StaleInput) {
+		t.Fatalf("mapFaceDetection(expired) error = %v, want StaleInput", err)
 	}
 }
 
