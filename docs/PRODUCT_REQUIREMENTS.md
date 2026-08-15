@@ -214,11 +214,14 @@ Person Presence、免按键 VAD、Web Avatar、本地 Speech Dispatcher TTS、�
 - 确定性 Identity Resolver、identification evidence window、application-owned speaker verification challenge，以及关闭窗口时读取最新 privacy/catalog 的同步 desktop runtime seam。
 - face detection、face identification、face liveness、speaker identification 和 speaker verification 五个独立 evidence RPC，以及 lease、exact Provider、权限、TTL、sequence 和去重校验。
 - 动态 biometric readiness seam 与 Registry/ingress/resolver/runtime/storage 的 fake/in-memory 验证。
+- Ubuntu Secret Service production master-key adapter；不存在 key 但已有受保护数据时禁止再生，也没有文件 fallback。
+- Git-managed 统一 CUDA Conda 环境、严格模型供应清单、CUDA-only YuNet/SFace/anti-spoof/ERes2Net 纯适配层，以及绑定模型 digest 的固定 face/speaker 模板 codec。真实目标 GPU conformance 已验证 artifact、CUDA 节点分配和官方声纹样例顺序，但没有据此设置产品阈值。
 
 未实现：
 
-- 真实人脸、声纹和活体模型 Worker，以及注册采集、模板提取和注册媒体即时丢弃流程。
-- 生产 master-key provider、desktop catalog/vault 配置与 composition。
+- 受 supervisor 管理的真实人脸、声纹和活体 Provider 进程，以及注册采集、模板生命周期编排和注册媒体即时丢弃流程。
+- 与目标设备、模型 SHA 和预处理协议绑定的 face/liveness/speaker 校准阈值与端到端延迟声明。
+- desktop Secret Service/catalog/vault 配置与 production composition。
 - C2 Camera/VAD 与生物 Worker 的 Camera/Microphone 设备共享和生命周期协调。
 - UI enrollment、重新注册、删除、逐能力运行状态和 enrollment 状态；现有界面只有权限状态与聚合生物识别指示。
 - production `cmd/desktop.Build` 的 identity runtime、identity evidence service 和 biometric readiness 启用；当前生产组合仍为 identity disabled。

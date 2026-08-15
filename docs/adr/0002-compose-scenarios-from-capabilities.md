@@ -34,7 +34,7 @@ Use a typed capability catalog and versioned scenario manifests.
 
 ## Implementation Checkpoint
 
-Stage C3 has reached a model-independent checkpoint, not stage completion.
+Stage C3 has reached a model-enabled foundation checkpoint, not stage completion.
 
 Implemented:
 
@@ -43,11 +43,13 @@ Implemented:
 - A deterministic Identity Resolver, bounded identification windows, application-owned speaker verification challenges, and synchronous desktop runtime and live-readiness seams.
 - Five separate face detection, face identification, face liveness, speaker identification, and speaker verification evidence RPCs with lease, exact-Provider, permission, TTL, sequence, and deduplication gates.
 - Fake and in-memory integration coverage across Registry, identity ingress, resolver/runtime, and encrypted deletion boundaries.
+- A production Ubuntu Secret Service master-key adapter, one pinned CUDA Conda environment, a strict offline model artifact manifest, CUDA-only YuNet/SFace/anti-spoof/ERes2Net model adapters, and fixed face/speaker template codecs. Real target-GPU conformance verifies artifact integrity and execution placement but does not define product thresholds.
 
 Not implemented:
 
-- Real face, speaker, or liveness model workers, enrollment capture, template extraction, or enrollment-media disposal.
-- A production master-key provider, desktop catalog/vault composition, or Camera/Microphone sharing between anonymous C2 and biometric workers.
+- Supervised face, speaker, or liveness Provider processes, enrollment capture and lifecycle orchestration, or enrollment-media disposal.
+- Deployment calibration artifacts and end-to-end Provider latency declarations bound to the selected model and preprocessing versions.
+- Desktop Secret Service/catalog/vault composition, or Camera/Microphone sharing between anonymous C2 and biometric workers.
 - Enrollment and deletion UI, per-capability biometric runtime/enrollment status, or production desktop identity activation. `cmd/desktop.Build` still runs with identity disabled.
 - Canonical subject identity observations, private-memory gates, personalized welcome, or shared-household composition; those belong to the separately reviewed C4 slice.
 

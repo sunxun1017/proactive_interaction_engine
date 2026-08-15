@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "opencv-yunet-2023mar",
+      "filename": "face_detection_yunet_2023mar.onnx",
+      "url": "https://huggingface.co/opencv/face_detection_yunet/resolve/3cc26e7f1014a5ee5d74a42acee58bafc9d0a310/face_detection_yunet_2023mar.onnx",
+      "size_bytes": 232589,
+      "sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+      "upstream_sha384": null,
+      "license": "MIT",
+      "license_url": "https://github.com/opencv/opencv_zoo/blob/4.10.0/models/face_detection_yunet/LICENSE"
+    },
+    {
+      "id": "opencv-sface-2021dec",
+      "filename": "face_recognition_sface_2021dec.onnx",
+      "url": "https://huggingface.co/opencv/face_recognition_sface/resolve/3d7082438a6e4551e840c9b2bb60b71e8da4b524/face_recognition_sface_2021dec.onnx",
+      "size_bytes": 38696353,
+      "sha256": "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
+      "upstream_sha384": null,
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/opencv/opencv_zoo/blob/4.10.0/models/face_recognition_sface/LICENSE"
+    },
+    {
+      "id": "omz-anti-spoof-mn3",
+      "filename": "anti-spoof-mn3.onnx",
+      "url": "https://storage.openvinotoolkit.org/repositories/open_model_zoo/public/2022.1/anti-spoof-mn3/anti-spoof-mn3.onnx",
+      "size_bytes": 12270179,
+      "sha256": "c4c99af04603b62d7e44f6f4daeb33e0daeccc696008c0b1d62f6f5cebbb3262",
+      "upstream_sha384": "6de4534964b723397b3e8c995cadcf43bc007cc2f9930b95ae25f76adccece5d1d4d058d0b15117b9e4a9f758424f92a",
+      "license": "MIT",
+      "license_url": "https://raw.githubusercontent.com/kprokofi/light-weight-face-anti-spoofing/master/LICENSE"
+    },
+    {
+      "id": "modelscope-eres2net-speaker-v1.0.5",
+      "filename": "pretrained_eres2net_aug.ckpt",
+      "url": "https://www.modelscope.cn/models/iic/speech_eres2net_sv_zh-cn_16k-common/resolve/v1.0.5/pretrained_eres2net_aug.ckpt",
+      "size_bytes": 221210095,
+      "sha256": "ad78a02cab9dc23385c3fe235d1c3a370c0bd89ef192d0250546b370b0b8f227",
+      "upstream_sha384": null,
+      "license": "Apache-2.0",
+      "license_url": "https://www.modelscope.cn/api/v1/models/iic/speech_eres2net_sv_zh-cn_16k-common"
+    }
+  ]
+}

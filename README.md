@@ -19,7 +19,7 @@
 - 私有 UDS 上的真实 Camera/VAD Provider、15 秒租约与独立降级
 - 默认关闭且可分别撤销的 Camera/Microphone 权限、持续 Provider 状态
 - loopback typed Web 控制面板、Web Avatar 与本地 Speech Dispatcher TTS
-- Stage C3 model-independent checkpoint：加密生物 catalog/vault 与删除、Identity Resolver/coordinator、五个独立 evidence RPC，以及 desktop 同步 runtime/live readiness seam
+- Stage C3 model-enabled foundation：加密生物 catalog/vault 与 Secret Service 主密钥、Identity Resolver/coordinator、五个独立 evidence RPC、desktop runtime/readiness seam，以及 pinned CUDA-only face/liveness/speaker 模型基础
 - Registry、identity ingress、resolver/runtime 和加密删除的 fake/in-memory 纵向验证
 - Protobuf 外部契约、行为与配置样例、架构依赖测试
 - 仓库级 Agent Skill 与 Git/CI 约束
@@ -43,7 +43,7 @@ go run ./cmd/simulator -timeout
 
 Stage B 的无硬件产品雏形和 Stage C2 的基础 PC 体验已完成。Camera worker 使用 HOG/upper-body 的匿名人体检测，不运行人脸识别；Microphone worker 使用本地 WebRTC VAD，响应窗口内任何稳定人声都可由可信 Ingress 转为回复。原始帧/PCM 不出 worker，不录制、不转写。
 
-Stage C3 当前只达到 model-independent checkpoint：模型无关的身份契约、授权、加密存储、删除、解析、窗口协调、ingress 和 desktop composition seam 已由 fake/in-memory 测试验证。这不表示真实生物识别或 Stage C3 已完成：仓库尚无真实人脸/声纹/活体模型与注册采集、生产 master-key provider、Camera/Microphone 设备共享、UI enrollment/status，也未在生产 `cmd/desktop.Build` 中启用 identity。canonical subject identity、私有记忆读取和个性化欢迎属于后续 C4；核心仍只支持欢迎计划中专用的 `WaitEvent(user.reply)` continuation，不是通用工作流执行器。
+Stage C3 当前达到 model-enabled foundation checkpoint：身份契约、授权、加密存储/删除、Secret Service 主密钥、解析、窗口协调、ingress、desktop seam 与 pinned CUDA-only face/liveness/speaker 模型已分别通过 deterministic 或真实目标 GPU conformance。这仍不表示 Stage C3 完成：仓库尚无受 supervisor 管理的生物 Provider 进程、注册采集/模板生命周期编排、Camera/Microphone 设备共享、生产校准阈值、UI enrollment/status，也未在 production `cmd/desktop.Build` 中启用 identity。canonical subject identity、私有记忆读取和个性化欢迎属于后续 C4；核心仍只支持欢迎计划中专用的 `WaitEvent(user.reply)` continuation，不是通用工作流执行器。
 
 相关增量验证：
 
