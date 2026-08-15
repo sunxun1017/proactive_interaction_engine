@@ -154,7 +154,7 @@ func Build(config Config) (_ *App, err error) {
 	if err != nil {
 		return nil, err
 	}
-	activation, err := newActivationView(loadedScenario.Requirements, registry, clock, speaker != nil)
+	activation, err := newActivationView(loadedScenario.Requirements, registry, clock, activationViewOptions{TTSEnabled: speaker != nil})
 	if err != nil {
 		return nil, err
 	}

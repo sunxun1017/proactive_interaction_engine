@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"reflect"
+	"strings"
 	"time"
 
 	"proactive-interaction-engine/internal/application/port"
+	"proactive-interaction-engine/internal/application/privacy"
 	"proactive-interaction-engine/internal/application/readiness"
 )
 
@@ -12,35 +16,101 @@ type providerSnapshotReader interface {
 	Snapshots() []readiness.ProviderSnapshot
 }
 
+type activationPrivacySnapshotReader interface {
+	Current(context.Context) (privacy.Snapshot, error)
+}
+
+type activationBiometricPolicyReader interface {
+	ReadinessPolicy(privacy.Snapshot, string) (readiness.BiometricPolicySnapshot, error)
+}
+
+type activationIdentityReadiness struct {
+	BiometricProfileRef string
+	Privacy             activationPrivacySnapshotReader
+	Catalog             activationBiometricPolicyReader
+}
+
+type activationViewOptions struct {
+	TTSEnabled bool
+	Identity   *activationIdentityReadiness
+}
+
 type activationView struct {
 	scenario   readiness.ScenarioRequirements
 	providers  providerSnapshotReader
 	clock      port.Clock
 	ttsEnabled bool
+	identity   *activationIdentityReadiness
 }
 
-func newActivationView(scenario readiness.ScenarioRequirements, providers providerSnapshotReader, clock port.Clock, ttsEnabled bool) (*activationView, error) {
-	if providers == nil || clock == nil {
+func newActivationView(
+	scenario readiness.ScenarioRequirements,
+	providers providerSnapshotReader,
+	clock port.Clock,
+	options activationViewOptions,
+) (*activationView, error) {
+	if isNilActivationDependency(providers) || isNilActivationDependency(clock) {
 		return nil, errors.New("provider snapshots and clock are required")
 	}
 	if err := readiness.ValidateScenario(scenario); err != nil {
 		return nil, err
 	}
-	return &activationView{scenario: cloneScenario(scenario), providers: providers, clock: clock, ttsEnabled: ttsEnabled}, nil
+
+	var identity *activationIdentityReadiness
+	if options.Identity != nil {
+		profileRef := options.Identity.BiometricProfileRef
+		trimmedProfileRef := strings.TrimSpace(profileRef)
+		if trimmedProfileRef == "" || trimmedProfileRef != profileRef {
+			return nil, errors.New("biometric profile reference must be non-empty and have no surrounding whitespace")
+		}
+		if isNilActivationDependency(options.Identity.Privacy) || isNilActivationDependency(options.Identity.Catalog) {
+			return nil, errors.New("privacy snapshots and biometric readiness catalog are required when identity readiness is enabled")
+		}
+		configured := *options.Identity
+		identity = &configured
+	}
+	return &activationView{
+		scenario: cloneScenario(scenario), providers: providers, clock: clock,
+		ttsEnabled: options.TTSEnabled, identity: identity,
+	}, nil
 }
 
 func (v *activationView) CurrentActivation() readiness.Activation {
 	now := v.clock.Now()
+	policy := readiness.BiometricPolicySnapshot{}
+	if v.identity != nil {
+		global, err := v.identity.Privacy.Current(context.Background())
+		if err != nil {
+			return readiness.Activation{Status: readiness.Blocked}
+		}
+		policy, err = v.identity.Catalog.ReadinessPolicy(global, v.identity.BiometricProfileRef)
+		if err != nil {
+			return readiness.Activation{Status: readiness.Blocked}
+		}
+	}
 	providers := v.providers.Snapshots()
 	providers = append(providers, localProvider("web-avatar", readiness.DisplayText, now))
 	if v.ttsEnabled {
 		providers = append(providers, localProvider("speech-dispatcher", readiness.SpeechSynthesis, now))
 	}
-	activation, err := readiness.EvaluateAt(v.scenario, providers, readiness.BiometricPolicySnapshot{}, now)
+	activation, err := readiness.EvaluateAt(v.scenario, providers, policy, now)
 	if err != nil {
 		return readiness.Activation{Status: readiness.Blocked}
 	}
 	return activation
+}
+
+func isNilActivationDependency(value any) bool {
+	if value == nil {
+		return true
+	}
+	kind := reflect.ValueOf(value).Kind()
+	switch kind {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflect.ValueOf(value).IsNil()
+	default:
+		return false
+	}
 }
 
 func localProvider(id string, capability readiness.CapabilityKind, now time.Time) readiness.ProviderSnapshot {
