@@ -12,7 +12,7 @@ import (
 	engineclock "proactive-interaction-engine/internal/runtime/clock"
 )
 
-func TestDeletionCoordinatorRemovesRetiredAndCurrentVaultTemplates(t *testing.T) {
+func TestTemplateLifecycleStoresReplacesAndDeletesEncryptedTemplates(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "vault")
 	keyProvider := staticKeyProvider{key: testKey(21)}
@@ -30,38 +30,30 @@ func TestDeletionCoordinatorRemovesRetiredAndCurrentVaultTemplates(t *testing.T)
 	}
 	registrationV1 := biometric.Registration{
 		ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
-		TemplateRef: "face-v1", ModelVersion: "face.model.v1",
+		TemplateRef: "face-v1", ModelVersion: FaceInferenceProfileID,
 	}
 	registrationV2 := registrationV1
 	registrationV2.TemplateRef = "face-v2"
-	registrationV2.ModelVersion = "face.model.v2"
 	descriptorV1 := descriptorFromRegistration(registrationV1)
 	descriptorV2 := descriptorFromRegistration(registrationV2)
-	if err := vault.Store(ctx, descriptorV1, []byte("opaque-face-template-v1")); err != nil {
-		t.Fatalf("Store(v1) error = %v", err)
-	}
-	if err := vault.Store(ctx, descriptorV2, []byte("opaque-face-template-v2")); err != nil {
-		t.Fatalf("Store(v2) error = %v", err)
-	}
 	if _, err := catalog.GrantConsent(ctx, biometric.ConsentCommand{
 		ProfileRef: registrationV1.ProfileRef, Capability: registrationV1.Capability,
 	}); err != nil {
 		t.Fatalf("GrantConsent() error = %v", err)
 	}
-	if _, err := catalog.Register(ctx, registrationV1); err != nil {
+	coordinator, err := NewTemplateLifecycleCoordinator(catalog, vault)
+	if err != nil {
+		t.Fatalf("NewTemplateLifecycleCoordinator() error = %v", err)
+	}
+	if _, err := coordinator.Recover(ctx); err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	if _, err := coordinator.Register(ctx, registrationV1, validFaceTemplatePayload()); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
-	if _, err := catalog.Replace(ctx, registrationV2); err != nil {
+	cleaned, err := coordinator.Replace(ctx, registrationV2, validFaceTemplatePayload())
+	if err != nil {
 		t.Fatalf("Replace() error = %v", err)
-	}
-	coordinator, err := biometric.NewDeletionCoordinator(catalog, vault)
-	if err != nil {
-		t.Fatalf("NewDeletionCoordinator() error = %v", err)
-	}
-
-	cleaned, err := coordinator.RetryPendingDeletes(ctx)
-	if err != nil {
-		t.Fatalf("RetryPendingDeletes() error = %v", err)
 	}
 	if cleaned.Records[0].PendingDelete != nil {
 		t.Fatalf("retired template remained pending: %#v", cleaned.Records[0])
@@ -69,8 +61,8 @@ func TestDeletionCoordinatorRemovesRetiredAndCurrentVaultTemplates(t *testing.T)
 	if _, err := vault.Open(ctx, descriptorV1); !fault.IsCode(err, fault.Unavailable) {
 		t.Fatalf("Open(retired) error = %v, want Unavailable", err)
 	}
-	if opened, err := vault.Open(ctx, descriptorV2); err != nil || string(opened) != "opaque-face-template-v2" {
-		t.Fatalf("Open(active) = %q, %v", opened, err)
+	if opened, err := vault.Open(ctx, descriptorV2); err != nil || len(opened) != faceTemplateBytes {
+		t.Fatalf("Open(active) bytes = %d, %v", len(opened), err)
 	}
 
 	deleted, err := coordinator.Delete(ctx, biometric.EnrollmentKey{

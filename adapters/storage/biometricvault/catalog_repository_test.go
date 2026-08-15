@@ -40,7 +40,7 @@ func TestCatalogRepositoryRoundTripsOnlyEncryptedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, sensitive := range []string{"profile-a", "template-a", "face.v1", string(readiness.FaceIdentification)} {
+	for _, sensitive := range []string{"profile-a", "template-a", "template-b", "face.v1", string(readiness.FaceIdentification)} {
 		if bytes.Contains(encoded, []byte(sensitive)) {
 			t.Fatalf("encrypted catalog exposes %q", sensitive)
 		}
@@ -60,6 +60,33 @@ func TestCatalogRepositoryRoundTripsOnlyEncryptedMetadata(t *testing.T) {
 	}
 }
 
+func TestCatalogRepositoryRejectsV1AuthenticationDomain(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "vault")
+	key := testKey(29)
+	if err := ensurePrivateDirectory(context.Background(), root, "test v1 catalog"); err != nil {
+		t.Fatal(err)
+	}
+	aead, err := newAEAD(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := sealPayload(
+		aead, bytes.NewReader(make([]byte, aead.NonceSize())),
+		[]byte("proactive-biometric-catalog-v1"),
+		[]byte(`{"schema_version":"v1","revision":0,"records":[]}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, catalogFilename), encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repository := newTestCatalogRepository(t, root, key)
+	if _, err := repository.Load(context.Background()); !fault.IsCode(err, fault.AdapterRejected) {
+		t.Fatalf("Load(v1 AAD) error = %v, want AdapterRejected", err)
+	}
+}
+
 func TestCatalogRepositoryEnforcesImmediateOptimisticRevision(t *testing.T) {
 	repository := newTestCatalogRepository(t, filepath.Join(t.TempDir(), "vault"), testKey(22))
 	ctx := context.Background()
@@ -71,7 +98,7 @@ func TestCatalogRepositoryEnforcesImmediateOptimisticRevision(t *testing.T) {
 	second.Revision = 2
 	second.Records = append(second.Records, biometric.Record{
 		ProfileRef: "profile-b", Capability: readiness.SpeakerIdentification,
-		Consented: true, ConsentUpdatedAt: testCatalogTime().Add(time.Minute),
+		Consented: true, ConsentVersion: 1, ConsentUpdatedAt: testCatalogTime().Add(time.Minute),
 		Status: biometric.EnrollmentNone,
 	})
 	if err := repository.Save(ctx, 0, first); !fault.IsCode(err, fault.StaleInput) {
@@ -139,7 +166,7 @@ func TestCatalogAndTemplateCiphertextsCannotCrossAuthenticationDomains(t *testin
 		root := filepath.Join(t.TempDir(), "vault")
 		key := testKey(27)
 		vault := newTestVault(t, root, key)
-		if err := vault.Store(context.Background(), testDescriptor(), []byte("template")); err != nil {
+		if err := vault.store(context.Background(), testDescriptor(), testVaultStoreOperationID, []byte("template")); err != nil {
 			t.Fatal(err)
 		}
 		encoded := readOnlyVaultFile(t, root)
@@ -158,9 +185,9 @@ func TestCatalogRepositoryRejectsUnknownSchemaFieldsAndTrailingDocuments(t *test
 		name  string
 		plain string
 	}{
-		{name: "unknown schema", plain: `{"schema_version":"v2","revision":0,"records":[]}`},
-		{name: "unknown field", plain: `{"schema_version":"v1","revision":0,"records":[],"extra":true}`},
-		{name: "trailing document", plain: `{"schema_version":"v1","revision":0,"records":[]} {}`},
+		{name: "old schema", plain: `{"schema_version":"v1","revision":0,"records":[]}`},
+		{name: "unknown field", plain: `{"schema_version":"v2","revision":0,"records":[],"extra":true}`},
+		{name: "trailing document", plain: `{"schema_version":"v2","revision":0,"records":[]} {}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "vault")
@@ -242,9 +269,13 @@ func testCatalogSnapshot() biometric.Snapshot {
 		Revision: 1,
 		Records: []biometric.Record{{
 			ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
-			Consented: true, ConsentUpdatedAt: testCatalogTime(),
+			Consented: true, ConsentVersion: 1, ConsentUpdatedAt: testCatalogTime(),
 			TemplateRef: "template-a", ModelVersion: "face.v1",
 			Status: biometric.EnrollmentActive, EnrollmentUpdatedAt: testCatalogTime(),
+			PendingStore: &biometric.PendingTemplateReference{
+				TemplateRef: "template-b", ModelVersion: "face.v2", ConsentVersion: 1,
+				StoreOperationID: "00112233445566778899aabbccddeeff",
+			},
 		}},
 	}
 }

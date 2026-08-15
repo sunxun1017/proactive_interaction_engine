@@ -15,6 +15,8 @@ import (
 	engineclock "proactive-interaction-engine/internal/runtime/clock"
 )
 
+const testStoreOperationID = "00112233445566778899aabbccddeeff"
+
 func TestCatalogDefaultsClosedAndIntersectsGlobalPermission(t *testing.T) {
 	service := newTestService(t, &memoryRepository{})
 	policy, err := service.ReadinessPolicy(globalPermissions(
@@ -43,12 +45,10 @@ func TestCatalogReadinessRequiresCaptureAndDetectionPrerequisites(t *testing.T) 
 		if _, err := service.GrantConsent(ctx, ConsentCommand{ProfileRef: "profile-a", Capability: capability}); err != nil {
 			t.Fatalf("GrantConsent(%s) error = %v", capability, err)
 		}
-		if _, err := service.Register(ctx, Registration{
+		activateRegistrationForTest(t, service, Registration{
 			ProfileRef: "profile-a", Capability: capability,
 			TemplateRef: "template-" + string(capability), ModelVersion: "model.v1",
-		}); err != nil {
-			t.Fatalf("Register(%s) error = %v", capability, err)
-		}
+		})
 	}
 
 	for _, test := range []struct {
@@ -100,9 +100,7 @@ func TestCatalogKeepsProfileCapabilitiesIndependentAndSnapshotsImmutable(t *test
 		{ProfileRef: "profile-b", Capability: readiness.FaceIdentification, TemplateRef: "template-face-b", ModelVersion: "face.v1"},
 		{ProfileRef: "profile-a", Capability: readiness.SpeakerIdentification, TemplateRef: "template-speaker-a", ModelVersion: "speaker.v1"},
 	} {
-		if _, err := service.Register(ctx, registration); err != nil {
-			t.Fatalf("Register(%#v) error = %v", registration, err)
-		}
+		activateRegistrationForTest(t, service, registration)
 	}
 
 	policy, err := service.ReadinessPolicy(globalPermissions(
@@ -134,10 +132,10 @@ func TestCatalogKeepsProfileCapabilitiesIndependentAndSnapshotsImmutable(t *test
 
 func TestCatalogRejectsRegistrationWithoutProfileConsent(t *testing.T) {
 	service := newTestService(t, &memoryRepository{})
-	_, err := service.Register(context.Background(), Registration{
+	_, err := service.PrepareRegister(context.Background(), Registration{
 		ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
 		TemplateRef: "template-a", ModelVersion: "face.v1",
-	})
+	}, testStoreOperationID)
 	if !fault.IsCode(err, fault.PermissionDenied) {
 		t.Fatalf("Register() error = %v, want PermissionDenied", err)
 	}
@@ -155,24 +153,18 @@ func TestCatalogRequiresExplicitReplaceAndKeepsExactRegisterIdempotent(t *testin
 		ProfileRef: "profile-a", Capability: readiness.SpeakerVerification,
 		TemplateRef: "template-v1", ModelVersion: "speaker.v1",
 	}
-	registered, err := service.Register(ctx, first)
-	if err != nil {
-		t.Fatalf("Register(first) error = %v", err)
-	}
-	again, err := service.Register(ctx, first)
+	registered := activateRegistrationForTest(t, service, first)
+	again, err := service.PrepareRegister(ctx, first, testStoreOperationID)
 	if err != nil || again.Revision != registered.Revision {
 		t.Fatalf("idempotent Register() = %#v, %v", again, err)
 	}
 	second := first
 	second.TemplateRef = "template-v2"
 	second.ModelVersion = "speaker.v2"
-	if _, err := service.Register(ctx, second); !fault.IsCode(err, fault.InvalidInput) {
+	if _, err := service.PrepareRegister(ctx, second, testStoreOperationID); !fault.IsCode(err, fault.InvalidInput) {
 		t.Fatalf("implicit replacement error = %v, want InvalidInput", err)
 	}
-	replaced, err := service.Replace(ctx, second)
-	if err != nil {
-		t.Fatalf("Replace() error = %v", err)
-	}
+	replaced := replaceRegistrationForTest(t, service, second)
 	if got := replaced.Records[0]; got.TemplateRef != "template-v2" || got.ModelVersion != "speaker.v2" || got.Status != EnrollmentActive || got.PendingDelete == nil || got.PendingDelete.TemplateRef != "template-v1" || got.PendingDelete.ModelVersion != "speaker.v1" {
 		t.Fatalf("replaced record = %#v", got)
 	}
@@ -201,7 +193,7 @@ func TestCatalogRequiresExplicitReplaceAndKeepsExactRegisterIdempotent(t *testin
 	}
 	third := second
 	third.TemplateRef = "template-v3"
-	if _, err := restarted.Replace(ctx, third); !fault.IsCode(err, fault.PolicyBlocked) {
+	if _, err := restarted.PrepareReplace(ctx, third, testStoreOperationID); !fault.IsCode(err, fault.PolicyBlocked) {
 		t.Fatalf("Replace() with pending deletion error = %v, want PolicyBlocked", err)
 	}
 	cleaned, err := restarted.ConfirmRetiredDelete(ctx, key, TemplateReference{
@@ -227,9 +219,7 @@ func TestCatalogRevocationAndDeletionAreFailClosedAndRecoverable(t *testing.T) {
 	if _, err := service.GrantConsent(ctx, command); err != nil {
 		t.Fatalf("GrantConsent() error = %v", err)
 	}
-	if _, err := service.Register(ctx, registration); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	activateRegistrationForTest(t, service, registration)
 	if _, err := service.RevokeConsent(ctx, command); err != nil {
 		t.Fatalf("RevokeConsent() error = %v", err)
 	}
@@ -270,12 +260,10 @@ func TestCatalogDeleteProfileRevokesAndQueuesEveryEnrollment(t *testing.T) {
 		if _, err := service.GrantConsent(ctx, command); err != nil {
 			t.Fatalf("GrantConsent(%s) error = %v", capability, err)
 		}
-		if _, err := service.Register(ctx, Registration{
+		activateRegistrationForTest(t, service, Registration{
 			ProfileRef: "profile-a", Capability: capability,
 			TemplateRef: fmt.Sprintf("template-%d", index), ModelVersion: "model.v1",
-		}); err != nil {
-			t.Fatalf("Register(%s) error = %v", capability, err)
-		}
+		})
 	}
 	snapshot, err := service.DeleteProfile(ctx, "profile-a")
 	if err != nil {
@@ -320,17 +308,15 @@ func TestCatalogRejectsTemplateReferenceReuseAcrossProfiles(t *testing.T) {
 			t.Fatalf("GrantConsent(%s) error = %v", profileRef, err)
 		}
 	}
-	if _, err := service.Register(ctx, Registration{
+	activateRegistrationForTest(t, service, Registration{
 		ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
 		TemplateRef: "shared-template", ModelVersion: "face.v1",
-	}); err != nil {
-		t.Fatalf("Register(profile-a) error = %v", err)
-	}
+	})
 	before := service.Current()
-	_, err := service.Register(ctx, Registration{
+	_, err := service.PrepareRegister(ctx, Registration{
 		ProfileRef: "profile-b", Capability: readiness.FaceIdentification,
 		TemplateRef: "shared-template", ModelVersion: "face.v1",
-	})
+	}, testStoreOperationID)
 	if !fault.IsCode(err, fault.InvalidInput) {
 		t.Fatalf("Register(profile-b) error = %v, want InvalidInput", err)
 	}
@@ -381,7 +367,7 @@ func TestCatalogDoesNotPublishFailedPersistence(t *testing.T) {
 	}
 }
 
-func TestCatalogDoesNotPublishReplacementWhenPersistenceFails(t *testing.T) {
+func TestCatalogReplacementSaveFailureFailsClosedUntilReload(t *testing.T) {
 	repository := &memoryRepository{}
 	service := newTestService(t, repository)
 	ctx := context.Background()
@@ -389,24 +375,56 @@ func TestCatalogDoesNotPublishReplacementWhenPersistenceFails(t *testing.T) {
 	if _, err := service.GrantConsent(ctx, command); err != nil {
 		t.Fatalf("GrantConsent() error = %v", err)
 	}
-	if _, err := service.Register(ctx, Registration{
+	activateRegistrationForTest(t, service, Registration{
 		ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
 		TemplateRef: "template-v1", ModelVersion: "face.v1",
-	}); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	})
 	before := service.Current()
 	repository.setSaveError(errors.New("disk unavailable"))
-	_, err := service.Replace(ctx, Registration{
+	_, err := service.PrepareReplace(ctx, Registration{
 		ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
 		TemplateRef: "template-v2", ModelVersion: "face.v2",
-	})
+	}, testStoreOperationID)
 	if !fault.IsCode(err, fault.Unavailable) {
 		t.Fatalf("Replace() error = %v, want Unavailable", err)
 	}
-	if after := service.Current(); !reflect.DeepEqual(after, before) {
-		t.Fatalf("replacement was published after failed save: %#v != %#v", after, before)
+	if after := service.Current(); after.Revision != 0 || len(after.Records) != 0 {
+		t.Fatalf("catalog did not fail closed after uncertain save: %#v", after)
 	}
+	repository.setSaveError(nil)
+	reloaded, err := service.Reload(ctx)
+	if err != nil {
+		t.Fatalf("Reload() error = %v", err)
+	}
+	if !reflect.DeepEqual(reloaded, before) {
+		t.Fatalf("Reload() = %#v, want durable %#v", reloaded, before)
+	}
+}
+
+func activateRegistrationForTest(t *testing.T, service *Service, registration Registration) Snapshot {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := service.PrepareRegister(ctx, registration, testStoreOperationID); err != nil {
+		t.Fatalf("PrepareRegister(%#v) error = %v", registration, err)
+	}
+	committed, err := service.CommitPrepared(ctx, registration, testStoreOperationID)
+	if err != nil {
+		t.Fatalf("CommitPrepared(%#v) error = %v", registration, err)
+	}
+	return committed
+}
+
+func replaceRegistrationForTest(t *testing.T, service *Service, registration Registration) Snapshot {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := service.PrepareReplace(ctx, registration, testStoreOperationID); err != nil {
+		t.Fatalf("PrepareReplace(%#v) error = %v", registration, err)
+	}
+	committed, err := service.CommitPrepared(ctx, registration, testStoreOperationID)
+	if err != nil {
+		t.Fatalf("CommitPrepared(%#v) error = %v", registration, err)
+	}
+	return committed
 }
 
 func newTestService(t *testing.T, repository Repository) *Service {
@@ -440,9 +458,10 @@ func testTime() time.Time {
 }
 
 type memoryRepository struct {
-	mu      sync.Mutex
-	current Snapshot
-	saveErr error
+	mu                 sync.Mutex
+	current            Snapshot
+	saveErr            error
+	persistBeforeError bool
 }
 
 func (r *memoryRepository) Load(context.Context) (Snapshot, error) {
@@ -454,14 +473,14 @@ func (r *memoryRepository) Load(context.Context) (Snapshot, error) {
 func (r *memoryRepository) Save(_ context.Context, expected uint64, next Snapshot) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.saveErr != nil {
-		return r.saveErr
-	}
 	if r.current.Revision != expected {
 		return errors.New("revision conflict")
 	}
+	if r.saveErr != nil && !r.persistBeforeError {
+		return r.saveErr
+	}
 	r.current = cloneSnapshot(next)
-	return nil
+	return r.saveErr
 }
 
 func (r *memoryRepository) setSaveError(err error) {

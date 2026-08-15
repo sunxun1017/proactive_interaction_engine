@@ -22,12 +22,26 @@ type Record struct {
 	ProfileRef          string
 	Capability          readiness.CapabilityKind
 	Consented           bool
+	ConsentVersion      uint64
 	ConsentUpdatedAt    time.Time
 	TemplateRef         string
 	ModelVersion        string
 	Status              EnrollmentStatus
 	EnrollmentUpdatedAt time.Time
+	PendingStore        *PendingTemplateReference
 	PendingDelete       *TemplateReference
+}
+
+// PendingTemplateReference durably records a prepared template store without
+// allowing it to become active before the dedicated vault confirms storage.
+// ConsentVersion prevents a prepared operation from surviving revocation and
+// later re-authorization. StoreOperationID is a random, non-biometric binding
+// to one vault write; it is never derived from template bytes.
+type PendingTemplateReference struct {
+	TemplateRef      string
+	ModelVersion     string
+	ConsentVersion   uint64
+	StoreOperationID string
 }
 
 // TemplateReference is deletion metadata only; it never contains template
@@ -56,8 +70,8 @@ type ConsentCommand struct {
 	Capability readiness.CapabilityKind
 }
 
-// Registration activates an already protected template reference. Template
-// bytes never enter this package.
+// Registration identifies one template lifecycle operation. Template bytes
+// never enter this package.
 type Registration struct {
 	ProfileRef   string
 	Capability   readiness.CapabilityKind

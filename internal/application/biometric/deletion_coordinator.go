@@ -85,7 +85,29 @@ func (c *DeletionCoordinator) RetryPendingDeletes(ctx context.Context) (Snapshot
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.catalog.ReloadRequired() {
+		return Snapshot{}, fault.New(fault.Unavailable, deletionCoordinatorOp, errors.New("catalog reload is required"))
+	}
 	return c.deletePending(ctx, c.catalog.Current(), func(Record) bool { return true })
+}
+
+// RetryPendingForKey retries current or retired deletion metadata for one
+// enrollment without coupling a completed replacement to unrelated records.
+func (c *DeletionCoordinator) RetryPendingForKey(ctx context.Context, key EnrollmentKey) (Snapshot, error) {
+	if err := validateDeletionContext(ctx); err != nil {
+		return Snapshot{}, err
+	}
+	if err := validateKey(key.ProfileRef, key.Capability); err != nil {
+		return Snapshot{}, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.catalog.ReloadRequired() {
+		return Snapshot{}, fault.New(fault.Unavailable, deletionCoordinatorOp, errors.New("catalog reload is required"))
+	}
+	return c.deletePending(ctx, c.catalog.Current(), func(record Record) bool {
+		return record.ProfileRef == key.ProfileRef && record.Capability == key.Capability
+	})
 }
 
 func (c *DeletionCoordinator) deletePending(ctx context.Context, snapshot Snapshot, include func(Record) bool) (Snapshot, error) {
@@ -109,7 +131,11 @@ func (c *DeletionCoordinator) deletePending(ctx context.Context, snapshot Snapsh
 			if err := c.deleter.Delete(ctx, current); err != nil {
 				remember(wrapDeletionFault("delete current template", current, err))
 			} else if _, err := c.catalog.ConfirmDelete(ctx, key); err != nil {
-				remember(wrapDeletionFault("confirm current template deletion", current, err))
+				wrapped := wrapDeletionFault("confirm current template deletion", current, err)
+				remember(wrapped)
+				if c.catalog.ReloadRequired() {
+					return Snapshot{}, firstErr
+				}
 			}
 		}
 
@@ -125,8 +151,16 @@ func (c *DeletionCoordinator) deletePending(ctx context.Context, snapshot Snapsh
 			continue
 		}
 		if _, err := c.catalog.ConfirmRetiredDelete(ctx, key, *record.PendingDelete); err != nil {
-			remember(wrapDeletionFault("confirm retired template deletion", retired, err))
+			wrapped := wrapDeletionFault("confirm retired template deletion", retired, err)
+			remember(wrapped)
+			if c.catalog.ReloadRequired() {
+				return Snapshot{}, firstErr
+			}
 		}
+	}
+	if c.catalog.ReloadRequired() {
+		remember(fault.New(fault.Unavailable, deletionCoordinatorOp, errors.New("catalog reload is required")))
+		return Snapshot{}, firstErr
 	}
 	return c.catalog.Current(), firstErr
 }

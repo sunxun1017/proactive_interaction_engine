@@ -30,10 +30,11 @@ func ValidateSnapshot(snapshot Snapshot) error {
 // Service serializes consent and enrollment metadata changes and publishes a
 // new view only after durable persistence succeeds.
 type Service struct {
-	mu         sync.RWMutex
-	repository Repository
-	clock      port.Clock
-	current    Snapshot
+	mu             sync.RWMutex
+	repository     Repository
+	clock          port.Clock
+	current        Snapshot
+	reloadRequired bool
 }
 
 // New restores and validates a biometric metadata catalog.
@@ -54,7 +55,7 @@ func New(ctx context.Context, repository Repository, clock port.Clock) (*Service
 	}
 	canonical, err := canonicalize(loaded)
 	if err != nil {
-		return nil, fault.New(fault.InvalidInput, op, err)
+		return nil, fault.New(fault.AdapterRejected, op, err)
 	}
 	return &Service{repository: repository, clock: clock, current: canonical}, nil
 }
@@ -63,7 +64,44 @@ func New(ctx context.Context, repository Repository, clock port.Clock) (*Service
 func (s *Service) Current() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.reloadRequired {
+		return Snapshot{}
+	}
 	return cloneSnapshot(s.current)
+}
+
+// ReloadRequired reports whether an uncertain save outcome prevents the
+// service from safely exposing or mutating its in-memory snapshot.
+func (s *Service) ReloadRequired() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.reloadRequired
+}
+
+// Reload restores the latest durable snapshot after an uncertain repository
+// save outcome. Until this succeeds all reads and mutations remain fail closed.
+func (s *Service) Reload(ctx context.Context) (Snapshot, error) {
+	if ctx == nil {
+		return Snapshot{}, fault.New(fault.InvalidInput, catalogOp, errors.New("context is required"))
+	}
+	if err := ctx.Err(); err != nil {
+		return Snapshot{}, classify(catalogOp, err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	loaded, err := s.repository.Load(ctx)
+	if err != nil {
+		s.reloadRequired = true
+		return Snapshot{}, classify(catalogOp, err)
+	}
+	canonical, err := canonicalize(loaded)
+	if err != nil {
+		s.reloadRequired = true
+		return Snapshot{}, fault.New(fault.AdapterRejected, catalogOp, err)
+	}
+	s.current = canonical
+	s.reloadRequired = false
+	return cloneSnapshot(s.current), nil
 }
 
 // GrantConsent enables one profile and capability after durable persistence.
@@ -76,15 +114,16 @@ func (s *Service) GrantConsent(ctx context.Context, command ConsentCommand) (Sna
 		if index < 0 {
 			next.Records = append(next.Records, Record{
 				ProfileRef: command.ProfileRef, Capability: command.Capability,
-				Consented: true, ConsentUpdatedAt: now, Status: EnrollmentNone,
+				Consented: true, ConsentVersion: 1, ConsentUpdatedAt: now, Status: EnrollmentNone,
 			})
 			return true, nil
 		}
 		if next.Records[index].Consented {
 			return false, nil
 		}
-		next.Records[index].Consented = true
-		next.Records[index].ConsentUpdatedAt = now
+		if err := advanceConsent(&next.Records[index], true, now); err != nil {
+			return false, err
+		}
 		return true, nil
 	})
 }
@@ -100,27 +139,43 @@ func (s *Service) RevokeConsent(ctx context.Context, command ConsentCommand) (Sn
 		if index < 0 || !next.Records[index].Consented {
 			return false, nil
 		}
-		next.Records[index].Consented = false
-		next.Records[index].ConsentUpdatedAt = now
+		if err := advanceConsent(&next.Records[index], false, now); err != nil {
+			return false, err
+		}
 		return true, nil
 	})
 }
 
-// Register records a first template reference. Replacing an existing template
-// requires the explicit Replace operation.
-func (s *Service) Register(ctx context.Context, registration Registration) (Snapshot, error) {
+// PrepareRegister durably stages a first template reference without making it
+// usable. The dedicated vault adapter commits it only after encrypted storage.
+func (s *Service) PrepareRegister(ctx context.Context, registration Registration, storeOperationID string) (Snapshot, error) {
 	if err := validateRegistration(registration); err != nil {
 		return Snapshot{}, err
 	}
-	return s.change(ctx, func(next *Snapshot, now time.Time) (bool, error) {
+	if !validStoreOperationID(storeOperationID) {
+		return Snapshot{}, invalidInput("store operation ID is invalid")
+	}
+	return s.change(ctx, func(next *Snapshot, _ time.Time) (bool, error) {
 		index := recordIndex(next.Records, registration.ProfileRef, registration.Capability)
 		if index < 0 || !next.Records[index].Consented {
 			return false, fault.New(fault.PermissionDenied, catalogOp, errors.New("profile consent is required"))
 		}
 		record := &next.Records[index]
+		if exactPendingStore(record.PendingStore, registration) {
+			if record.PendingStore.StoreOperationID != storeOperationID {
+				return false, fault.New(fault.StaleInput, catalogOp, errors.New("prepared store operation does not match"))
+			}
+			return false, nil
+		}
+		if record.PendingStore != nil {
+			return false, fault.New(fault.PolicyBlocked, catalogOp, errors.New("another template store is pending"))
+		}
 		switch record.Status {
 		case EnrollmentNone:
-			activate(record, registration, now)
+			if record.PendingDelete != nil {
+				return false, fault.New(fault.PolicyBlocked, catalogOp, errors.New("previous template deletion is pending"))
+			}
+			record.PendingStore = pendingStore(registration, record.ConsentVersion, storeOperationID)
 			return true, nil
 		case EnrollmentActive:
 			if record.TemplateRef == registration.TemplateRef && record.ModelVersion == registration.ModelVersion {
@@ -135,22 +190,35 @@ func (s *Service) Register(ctx context.Context, registration Registration) (Snap
 	})
 }
 
-// Replace explicitly swaps an active template reference.
-func (s *Service) Replace(ctx context.Context, registration Registration) (Snapshot, error) {
+// PrepareReplace durably stages a replacement while the old active template
+// remains usable until CommitPrepared succeeds.
+func (s *Service) PrepareReplace(ctx context.Context, registration Registration, storeOperationID string) (Snapshot, error) {
 	if err := validateRegistration(registration); err != nil {
 		return Snapshot{}, err
 	}
-	return s.change(ctx, func(next *Snapshot, now time.Time) (bool, error) {
+	if !validStoreOperationID(storeOperationID) {
+		return Snapshot{}, invalidInput("store operation ID is invalid")
+	}
+	return s.change(ctx, func(next *Snapshot, _ time.Time) (bool, error) {
 		index := recordIndex(next.Records, registration.ProfileRef, registration.Capability)
 		if index < 0 || !next.Records[index].Consented {
 			return false, fault.New(fault.PermissionDenied, catalogOp, errors.New("profile consent is required"))
 		}
 		record := &next.Records[index]
+		if exactPendingStore(record.PendingStore, registration) {
+			if record.PendingStore.StoreOperationID != storeOperationID {
+				return false, fault.New(fault.StaleInput, catalogOp, errors.New("prepared store operation does not match"))
+			}
+			return false, nil
+		}
+		if record.PendingStore != nil {
+			return false, fault.New(fault.PolicyBlocked, catalogOp, errors.New("another template store is pending"))
+		}
+		if record.Status == EnrollmentActive && record.TemplateRef == registration.TemplateRef && record.ModelVersion == registration.ModelVersion {
+			return false, nil
+		}
 		if record.Status != EnrollmentActive {
 			return false, fault.New(fault.InvalidInput, catalogOp, errors.New("an active enrollment is required for replacement"))
-		}
-		if record.TemplateRef == registration.TemplateRef && record.ModelVersion == registration.ModelVersion {
-			return false, nil
 		}
 		if record.PendingDelete != nil {
 			return false, fault.New(fault.PolicyBlocked, catalogOp, errors.New("previous template deletion is pending"))
@@ -158,8 +226,86 @@ func (s *Service) Replace(ctx context.Context, registration Registration) (Snaps
 		if record.TemplateRef == registration.TemplateRef {
 			return false, fault.New(fault.InvalidInput, catalogOp, errors.New("replacement requires a new template reference"))
 		}
-		record.PendingDelete = &TemplateReference{TemplateRef: record.TemplateRef, ModelVersion: record.ModelVersion}
+		record.PendingStore = pendingStore(registration, record.ConsentVersion, storeOperationID)
+		return true, nil
+	})
+}
+
+// CommitPrepared activates one exact durably staged reference. A replacement
+// moves the previous active reference into the retryable deletion queue.
+func (s *Service) CommitPrepared(ctx context.Context, registration Registration, storeOperationID string) (Snapshot, error) {
+	if err := validateRegistration(registration); err != nil {
+		return Snapshot{}, err
+	}
+	if !validStoreOperationID(storeOperationID) {
+		return Snapshot{}, invalidInput("store operation ID is invalid")
+	}
+	return s.change(ctx, func(next *Snapshot, now time.Time) (bool, error) {
+		index := recordIndex(next.Records, registration.ProfileRef, registration.Capability)
+		if index < 0 {
+			return false, fault.New(fault.StaleInput, catalogOp, errors.New("prepared template store does not exist"))
+		}
+		record := &next.Records[index]
+		if record.PendingStore == nil {
+			if record.Status == EnrollmentActive && record.TemplateRef == registration.TemplateRef && record.ModelVersion == registration.ModelVersion {
+				return false, nil
+			}
+			return false, fault.New(fault.StaleInput, catalogOp, errors.New("prepared template store does not exist"))
+		}
+		if !exactPendingStore(record.PendingStore, registration) {
+			return false, fault.New(fault.StaleInput, catalogOp, errors.New("prepared template metadata does not match"))
+		}
+		if record.PendingStore.StoreOperationID != storeOperationID {
+			return false, fault.New(fault.StaleInput, catalogOp, errors.New("prepared store operation does not match"))
+		}
+		if !record.Consented {
+			return false, fault.New(fault.PermissionDenied, catalogOp, errors.New("profile consent was revoked after preparation"))
+		}
+		if record.ConsentVersion != record.PendingStore.ConsentVersion {
+			return false, fault.New(fault.StaleInput, catalogOp, errors.New("profile consent changed after preparation"))
+		}
+		switch record.Status {
+		case EnrollmentNone:
+		case EnrollmentActive:
+			if record.PendingDelete != nil {
+				return false, fault.New(fault.PolicyBlocked, catalogOp, errors.New("previous template deletion is pending"))
+			}
+			if record.TemplateRef == registration.TemplateRef {
+				return false, fault.New(fault.StaleInput, catalogOp, errors.New("prepared replacement reuses the active template reference"))
+			}
+			record.PendingDelete = &TemplateReference{TemplateRef: record.TemplateRef, ModelVersion: record.ModelVersion}
+		case EnrollmentDeletePending:
+			return false, fault.New(fault.PolicyBlocked, catalogOp, errors.New("enrollment deletion is pending"))
+		default:
+			return false, fault.New(fault.InvalidInput, catalogOp, errors.New("unknown enrollment status"))
+		}
 		activate(record, registration, now)
+		record.PendingStore = nil
+		return true, nil
+	})
+}
+
+// AbortPrepared clears one exact staged reference without changing the active
+// enrollment. Repeating an already completed abort is idempotent.
+func (s *Service) AbortPrepared(ctx context.Context, registration Registration, storeOperationID string) (Snapshot, error) {
+	if err := validateRegistration(registration); err != nil {
+		return Snapshot{}, err
+	}
+	if !validStoreOperationID(storeOperationID) {
+		return Snapshot{}, invalidInput("store operation ID is invalid")
+	}
+	return s.change(ctx, func(next *Snapshot, _ time.Time) (bool, error) {
+		index := recordIndex(next.Records, registration.ProfileRef, registration.Capability)
+		if index < 0 || next.Records[index].PendingStore == nil {
+			return false, nil
+		}
+		if !exactPendingStore(next.Records[index].PendingStore, registration) {
+			return false, fault.New(fault.StaleInput, catalogOp, errors.New("prepared template metadata does not match"))
+		}
+		if next.Records[index].PendingStore.StoreOperationID != storeOperationID {
+			return false, fault.New(fault.StaleInput, catalogOp, errors.New("prepared store operation does not match"))
+		}
+		next.Records[index].PendingStore = nil
 		return true, nil
 	})
 }
@@ -174,6 +320,9 @@ func (s *Service) RequestDelete(ctx context.Context, key EnrollmentKey) (Snapsho
 		index := recordIndex(next.Records, key.ProfileRef, key.Capability)
 		if index < 0 || next.Records[index].Status == EnrollmentNone || next.Records[index].Status == EnrollmentDeletePending {
 			return false, nil
+		}
+		if next.Records[index].PendingStore != nil {
+			return false, fault.New(fault.PolicyBlocked, catalogOp, errors.New("template store is pending"))
 		}
 		next.Records[index].Status = EnrollmentDeletePending
 		next.Records[index].EnrollmentUpdatedAt = now
@@ -244,8 +393,9 @@ func (s *Service) DeleteProfile(ctx context.Context, profileRef string) (Snapsho
 				continue
 			}
 			if record.Consented {
-				record.Consented = false
-				record.ConsentUpdatedAt = now
+				if err := advanceConsent(record, false, now); err != nil {
+					return false, err
+				}
 				changed = true
 			}
 			if record.Status == EnrollmentActive {
@@ -269,6 +419,10 @@ func (s *Service) ReadinessPolicy(global privacy.Snapshot, profileRef string) (r
 		return readiness.BiometricPolicySnapshot{}, err
 	}
 	s.mu.RLock()
+	if s.reloadRequired {
+		s.mu.RUnlock()
+		return readiness.BiometricPolicySnapshot{}, fault.New(fault.Unavailable, catalogOp, errors.New("catalog reload is required"))
+	}
 	current := cloneSnapshot(s.current)
 	s.mu.RUnlock()
 
@@ -302,6 +456,9 @@ func (s *Service) change(ctx context.Context, mutation func(*Snapshot, time.Time
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.reloadRequired {
+		return Snapshot{}, fault.New(fault.Unavailable, catalogOp, errors.New("catalog reload is required"))
+	}
 	next := cloneSnapshot(s.current)
 	now := s.clock.Now()
 	if now.IsZero() {
@@ -321,6 +478,7 @@ func (s *Service) change(ctx context.Context, mutation func(*Snapshot, time.Time
 	}
 	next = canonical
 	if err := s.repository.Save(ctx, s.current.Revision, cloneSnapshot(next)); err != nil {
+		s.reloadRequired = true
 		return Snapshot{}, classify(catalogOp, err)
 	}
 	s.current = next
@@ -332,6 +490,39 @@ func activate(record *Record, registration Registration, now time.Time) {
 	record.ModelVersion = registration.ModelVersion
 	record.Status = EnrollmentActive
 	record.EnrollmentUpdatedAt = now
+}
+
+func pendingStore(registration Registration, consentVersion uint64, storeOperationID string) *PendingTemplateReference {
+	return &PendingTemplateReference{
+		TemplateRef: registration.TemplateRef, ModelVersion: registration.ModelVersion,
+		ConsentVersion: consentVersion, StoreOperationID: storeOperationID,
+	}
+}
+
+func exactPendingStore(pending *PendingTemplateReference, registration Registration) bool {
+	return pending != nil && pending.TemplateRef == registration.TemplateRef && pending.ModelVersion == registration.ModelVersion
+}
+
+func validStoreOperationID(value string) bool {
+	if len(value) != 32 {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func advanceConsent(record *Record, consented bool, now time.Time) error {
+	if record.ConsentVersion == ^uint64(0) {
+		return fault.New(fault.PolicyBlocked, catalogOp, errors.New("consent version is exhausted"))
+	}
+	record.Consented = consented
+	record.ConsentVersion++
+	record.ConsentUpdatedAt = now
+	return nil
 }
 
 func validateRegistration(registration Registration) error {
@@ -373,6 +564,9 @@ func canonicalize(snapshot Snapshot) (Snapshot, error) {
 		if record.ConsentUpdatedAt.IsZero() {
 			return Snapshot{}, fmt.Errorf("biometric record %q/%q has no consent update time", record.ProfileRef, record.Capability)
 		}
+		if record.ConsentVersion == 0 {
+			return Snapshot{}, fmt.Errorf("biometric record %q/%q has no consent version", record.ProfileRef, record.Capability)
+		}
 		switch record.Status {
 		case EnrollmentNone:
 			if record.TemplateRef != "" || record.ModelVersion != "" || !record.EnrollmentUpdatedAt.IsZero() {
@@ -397,6 +591,17 @@ func canonicalize(snapshot Snapshot) (Snapshot, error) {
 				return Snapshot{}, errors.New("pending template reference is reused across biometric records")
 			}
 			seenTemplates[record.PendingDelete.TemplateRef] = struct{}{}
+		}
+		if record.PendingStore != nil {
+			if !validString(record.PendingStore.TemplateRef) || !validString(record.PendingStore.ModelVersion) ||
+				record.PendingStore.ConsentVersion == 0 || record.PendingStore.ConsentVersion > record.ConsentVersion ||
+				!validStoreOperationID(record.PendingStore.StoreOperationID) || record.PendingStore.TemplateRef == record.TemplateRef {
+				return Snapshot{}, errors.New("pending template store metadata is invalid")
+			}
+			if _, duplicate := seenTemplates[record.PendingStore.TemplateRef]; duplicate {
+				return Snapshot{}, errors.New("pending template store reference is reused across biometric records")
+			}
+			seenTemplates[record.PendingStore.TemplateRef] = struct{}{}
 		}
 	}
 	sortRecords(canonical.Records)
@@ -549,6 +754,10 @@ func sortRecords(records []Record) {
 func cloneSnapshot(snapshot Snapshot) Snapshot {
 	snapshot.Records = append([]Record(nil), snapshot.Records...)
 	for index := range snapshot.Records {
+		if snapshot.Records[index].PendingStore != nil {
+			pending := *snapshot.Records[index].PendingStore
+			snapshot.Records[index].PendingStore = &pending
+		}
 		if snapshot.Records[index].PendingDelete != nil {
 			pending := *snapshot.Records[index].PendingDelete
 			snapshot.Records[index].PendingDelete = &pending

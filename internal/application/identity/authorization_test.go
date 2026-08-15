@@ -204,7 +204,7 @@ func assertAnonymousReason(t *testing.T, resolution Resolution, reason Reason) {
 func activeEnrollment(profile string, capability readiness.CapabilityKind, modelVersion string, at time.Time) biometric.Record {
 	return biometric.Record{
 		ProfileRef: profile, Capability: capability,
-		Consented: true, ConsentUpdatedAt: at,
+		Consented: true, ConsentVersion: 1, ConsentUpdatedAt: at,
 		TemplateRef: "template-" + profile + "-" + string(capability), ModelVersion: modelVersion,
 		Status: biometric.EnrollmentActive, EnrollmentUpdatedAt: at,
 	}

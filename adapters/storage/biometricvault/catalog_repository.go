@@ -23,11 +23,11 @@ import (
 
 const (
 	catalogFilename = ".catalog.bio"
-	catalogSchema   = "v1"
+	catalogSchema   = "v2"
 	maxCatalogBytes = 1 << 20
 )
 
-var catalogAAD = []byte("proactive-biometric-catalog-v1")
+var catalogAAD = []byte("proactive-biometric-catalog-v2")
 
 var _ biometric.Repository = (*CatalogRepository)(nil)
 
@@ -182,12 +182,21 @@ type catalogRecord struct {
 	ProfileRef          string                     `json:"profile_ref"`
 	Capability          readiness.CapabilityKind   `json:"capability"`
 	Consented           bool                       `json:"consented"`
+	ConsentVersion      uint64                     `json:"consent_version"`
 	ConsentUpdatedAt    time.Time                  `json:"consent_updated_at"`
 	TemplateRef         string                     `json:"template_ref,omitempty"`
 	ModelVersion        string                     `json:"model_version,omitempty"`
 	Status              biometric.EnrollmentStatus `json:"status"`
 	EnrollmentUpdatedAt time.Time                  `json:"enrollment_updated_at,omitempty"`
+	PendingStore        *catalogPendingTemplate    `json:"pending_store,omitempty"`
 	PendingDelete       *catalogTemplateReference  `json:"pending_delete,omitempty"`
+}
+
+type catalogPendingTemplate struct {
+	TemplateRef      string `json:"template_ref"`
+	ModelVersion     string `json:"model_version"`
+	ConsentVersion   uint64 `json:"consent_version"`
+	StoreOperationID string `json:"store_operation_id"`
 }
 
 type catalogTemplateReference struct {
@@ -204,9 +213,15 @@ func encodeCatalog(snapshot biometric.Snapshot) ([]byte, error) {
 	for index, record := range snapshot.Records {
 		document.Records[index] = catalogRecord{
 			ProfileRef: record.ProfileRef, Capability: record.Capability,
-			Consented: record.Consented, ConsentUpdatedAt: record.ConsentUpdatedAt,
+			Consented: record.Consented, ConsentVersion: record.ConsentVersion, ConsentUpdatedAt: record.ConsentUpdatedAt,
 			TemplateRef: record.TemplateRef, ModelVersion: record.ModelVersion,
 			Status: record.Status, EnrollmentUpdatedAt: record.EnrollmentUpdatedAt,
+		}
+		if record.PendingStore != nil {
+			document.Records[index].PendingStore = &catalogPendingTemplate{
+				TemplateRef: record.PendingStore.TemplateRef, ModelVersion: record.PendingStore.ModelVersion,
+				ConsentVersion: record.PendingStore.ConsentVersion, StoreOperationID: record.PendingStore.StoreOperationID,
+			}
 		}
 		if record.PendingDelete != nil {
 			document.Records[index].PendingDelete = &catalogTemplateReference{
@@ -239,9 +254,15 @@ func decodeCatalog(encoded []byte) (biometric.Snapshot, error) {
 	for index, record := range document.Records {
 		snapshot.Records[index] = biometric.Record{
 			ProfileRef: record.ProfileRef, Capability: record.Capability,
-			Consented: record.Consented, ConsentUpdatedAt: record.ConsentUpdatedAt,
+			Consented: record.Consented, ConsentVersion: record.ConsentVersion, ConsentUpdatedAt: record.ConsentUpdatedAt,
 			TemplateRef: record.TemplateRef, ModelVersion: record.ModelVersion,
 			Status: record.Status, EnrollmentUpdatedAt: record.EnrollmentUpdatedAt,
+		}
+		if record.PendingStore != nil {
+			snapshot.Records[index].PendingStore = &biometric.PendingTemplateReference{
+				TemplateRef: record.PendingStore.TemplateRef, ModelVersion: record.PendingStore.ModelVersion,
+				ConsentVersion: record.PendingStore.ConsentVersion, StoreOperationID: record.PendingStore.StoreOperationID,
+			}
 		}
 		if record.PendingDelete != nil {
 			snapshot.Records[index].PendingDelete = &biometric.TemplateReference{

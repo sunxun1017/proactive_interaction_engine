@@ -19,12 +19,10 @@ func TestDeletionCoordinatorDeletesCurrentBeforeRetiredTemplate(t *testing.T) {
 		ProfileRef: key.ProfileRef, Capability: key.Capability,
 		TemplateRef: "face-v1", ModelVersion: "face.model.v1",
 	})
-	if _, err := service.Replace(context.Background(), Registration{
+	replaceRegistrationForTest(t, service, Registration{
 		ProfileRef: key.ProfileRef, Capability: key.Capability,
 		TemplateRef: "face-v2", ModelVersion: "face.model.v2",
-	}); err != nil {
-		t.Fatalf("Replace() error = %v", err)
-	}
+	})
 
 	deleter := &recordingTemplateDeleter{}
 	coordinator := newTestDeletionCoordinator(t, service, deleter)
@@ -51,12 +49,10 @@ func TestDeletionCoordinatorKeepsFailedPendingAndContinues(t *testing.T) {
 		ProfileRef: key.ProfileRef, Capability: key.Capability,
 		TemplateRef: "speaker-v1", ModelVersion: "speaker.model.v1",
 	})
-	if _, err := service.Replace(context.Background(), Registration{
+	replaceRegistrationForTest(t, service, Registration{
 		ProfileRef: key.ProfileRef, Capability: key.Capability,
 		TemplateRef: "speaker-v2", ModelVersion: "speaker.model.v2",
-	}); err != nil {
-		t.Fatalf("Replace() error = %v", err)
-	}
+	})
 
 	deleter := &recordingTemplateDeleter{failures: map[string]error{
 		"speaker-v2": fault.New(fault.Unavailable, "fake delete", errors.New("vault offline")),
@@ -87,7 +83,7 @@ func TestDeletionCoordinatorKeepsFailedPendingAndContinues(t *testing.T) {
 	}
 }
 
-func TestDeletionCoordinatorDeleteProfileUsesStableOrderAndFirstTypedError(t *testing.T) {
+func TestDeletionCoordinatorDeleteProfileUsesStableOrderAndStopsAfterUncertainConfirmation(t *testing.T) {
 	repository := &memoryRepository{}
 	service := newTestService(t, repository)
 	coordinatorEnroll(t, service, Registration{
@@ -102,12 +98,10 @@ func TestDeletionCoordinatorDeleteProfileUsesStableOrderAndFirstTypedError(t *te
 		ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
 		TemplateRef: "a-face-v1", ModelVersion: "face.model.v1",
 	})
-	if _, err := service.Replace(context.Background(), Registration{
+	replaceRegistrationForTest(t, service, Registration{
 		ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
 		TemplateRef: "a-face-v2", ModelVersion: "face.model.v2",
-	}); err != nil {
-		t.Fatalf("Replace() error = %v", err)
-	}
+	})
 
 	deleter := &recordingTemplateDeleter{failures: map[string]error{
 		"a-face-v2": fault.New(fault.AdapterRejected, "fake delete", errors.New("tampered")),
@@ -122,8 +116,16 @@ func TestDeletionCoordinatorDeleteProfileUsesStableOrderAndFirstTypedError(t *te
 	if !fault.IsCode(err, fault.AdapterRejected) {
 		t.Fatalf("DeleteProfile() error = %v, want first stable AdapterRejected", err)
 	}
-	if got := deleter.TemplateRefs(); !reflect.DeepEqual(got, []string{"a-face-v2", "a-face-v1", "a-speaker"}) {
-		t.Fatalf("DeleteProfile() calls = %v, want stable current/retired order", got)
+	if got := deleter.TemplateRefs(); !reflect.DeepEqual(got, []string{"a-face-v2", "a-face-v1"}) {
+		t.Fatalf("DeleteProfile() calls = %v, want stable current/retired order followed by immediate stop", got)
+	}
+	if snapshot.Revision != 0 || len(snapshot.Records) != 0 {
+		t.Fatalf("snapshot after uncertain confirmation = %#v, want fail-closed empty", snapshot)
+	}
+	repository.setSaveError(nil)
+	snapshot, err = service.Reload(context.Background())
+	if err != nil {
+		t.Fatalf("Reload() error = %v", err)
 	}
 	for _, record := range snapshot.Records {
 		if record.ProfileRef == "profile-a" && record.Consented {
@@ -156,8 +158,16 @@ func TestDeletionCoordinatorDoesNotCallVaultWhenDeleteRequestFails(t *testing.T)
 	if got := deleter.Calls(); len(got) != 0 {
 		t.Fatalf("vault calls after failed durable request = %#v", got)
 	}
-	if got := service.Current().Records[0].Status; got != EnrollmentActive {
-		t.Fatalf("catalog status after failed request = %s, want ACTIVE", got)
+	if got := service.Current(); got.Revision != 0 || len(got.Records) != 0 {
+		t.Fatalf("catalog after uncertain request = %#v, want fail-closed empty", got)
+	}
+	repository.setSaveError(nil)
+	reloaded, err := service.Reload(context.Background())
+	if err != nil {
+		t.Fatalf("Reload() error = %v", err)
+	}
+	if got := reloaded.Records[0].Status; got != EnrollmentActive {
+		t.Fatalf("catalog status after reload = %s, want ACTIVE", got)
 	}
 }
 
@@ -178,12 +188,15 @@ func TestDeletionCoordinatorRetriesAfterConfirmationFailure(t *testing.T) {
 	if !fault.IsCode(err, fault.Unavailable) {
 		t.Fatalf("Delete() error = %v, want Unavailable confirmation failure", err)
 	}
-	if got := snapshot.Records[0]; got.Status != EnrollmentDeletePending || got.TemplateRef != "face-v1" {
-		t.Fatalf("confirmation failure record = %#v, want durable pending", got)
+	if snapshot.Revision != 0 || len(snapshot.Records) != 0 {
+		t.Fatalf("confirmation failure snapshot = %#v, want fail-closed empty", snapshot)
 	}
 
 	repository.setSaveError(nil)
 	deleter.SetOnDelete(nil)
+	if _, err := service.Reload(context.Background()); err != nil {
+		t.Fatalf("Reload() error = %v", err)
+	}
 	retried, err := coordinator.RetryPendingDeletes(context.Background())
 	if err != nil {
 		t.Fatalf("RetryPendingDeletes() error = %v", err)
@@ -193,6 +206,29 @@ func TestDeletionCoordinatorRetriesAfterConfirmationFailure(t *testing.T) {
 	}
 	if got := deleter.TemplateRefs(); !reflect.DeepEqual(got, []string{"face-v1", "face-v1"}) {
 		t.Fatalf("idempotent physical delete calls = %v", got)
+	}
+}
+
+func TestDeletionCoordinatorRetryFailsClosedWhileCatalogRequiresReload(t *testing.T) {
+	repository := &memoryRepository{}
+	service := newTestService(t, repository)
+	coordinatorEnroll(t, service, Registration{
+		ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
+		TemplateRef: "face-v1", ModelVersion: "face.model.v1",
+	})
+	repository.setSaveError(errors.New("catalog offline"))
+	if _, err := service.RevokeConsent(context.Background(), ConsentCommand{
+		ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
+	}); !fault.IsCode(err, fault.Unavailable) {
+		t.Fatalf("RevokeConsent() error = %v, want Unavailable", err)
+	}
+	deleter := &recordingTemplateDeleter{}
+	coordinator := newTestDeletionCoordinator(t, service, deleter)
+	if _, err := coordinator.RetryPendingDeletes(context.Background()); !fault.IsCode(err, fault.Unavailable) {
+		t.Fatalf("RetryPendingDeletes() error = %v, want Unavailable", err)
+	}
+	if got := deleter.Calls(); len(got) != 0 {
+		t.Fatalf("vault calls while catalog reload is required = %#v", got)
 	}
 }
 
@@ -253,9 +289,7 @@ func coordinatorEnroll(t *testing.T, service *Service, registration Registration
 	}); err != nil {
 		t.Fatalf("GrantConsent() error = %v", err)
 	}
-	if _, err := service.Register(ctx, registration); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	activateRegistrationForTest(t, service, registration)
 }
 
 func newTestDeletionCoordinator(t *testing.T, service *Service, deleter TemplateDeleter) *DeletionCoordinator {

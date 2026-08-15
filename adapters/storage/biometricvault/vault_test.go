@@ -14,13 +14,15 @@ import (
 	"proactive-interaction-engine/internal/domain/fault"
 )
 
+const testVaultStoreOperationID = "00112233445566778899aabbccddeeff"
+
 func TestVaultEncryptsTemplateAndBindsMetadata(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "vault")
 	vault := newTestVault(t, root, testKey(1))
 	descriptor := testDescriptor()
 	template := []byte("sensitive-biometric-template")
 
-	if err := vault.Store(context.Background(), descriptor, template); err != nil {
+	if err := vault.store(context.Background(), descriptor, testVaultStoreOperationID, template); err != nil {
 		t.Fatalf("Store() error = %v", err)
 	}
 	path := onlyVaultPath(t, root)
@@ -87,17 +89,20 @@ func TestVaultStoreIsIdempotentButNeverOverwritesDifferentTemplate(t *testing.T)
 	template := []byte("template-v1")
 	ctx := context.Background()
 
-	if err := vault.Store(ctx, descriptor, template); err != nil {
+	if err := vault.store(ctx, descriptor, testVaultStoreOperationID, template); err != nil {
 		t.Fatalf("Store(first) error = %v", err)
 	}
 	before := readOnlyVaultFile(t, root)
-	if err := vault.Store(ctx, descriptor, append([]byte(nil), template...)); err != nil {
+	if err := vault.store(ctx, descriptor, testVaultStoreOperationID, append([]byte(nil), template...)); err != nil {
 		t.Fatalf("Store(idempotent) error = %v", err)
 	}
 	if after := readOnlyVaultFile(t, root); !bytes.Equal(after, before) {
 		t.Fatal("idempotent Store() rewrote ciphertext")
 	}
-	if err := vault.Store(ctx, descriptor, []byte("different")); !fault.IsCode(err, fault.StaleInput) {
+	if err := vault.store(ctx, descriptor, "ffeeddccbbaa99887766554433221100", template); !fault.IsCode(err, fault.StaleInput) {
+		t.Fatalf("Store(different operation) error = %v, want StaleInput", err)
+	}
+	if err := vault.store(ctx, descriptor, testVaultStoreOperationID, []byte("different")); !fault.IsCode(err, fault.StaleInput) {
 		t.Fatalf("Store(different template) error = %v, want StaleInput", err)
 	}
 	if opened, err := vault.Open(ctx, descriptor); err != nil || !bytes.Equal(opened, template) {
@@ -109,7 +114,7 @@ func TestVaultRejectsTamperAndWrongKey(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "vault")
 	descriptor := testDescriptor()
 	vault := newTestVault(t, root, testKey(3))
-	if err := vault.Store(context.Background(), descriptor, []byte("template")); err != nil {
+	if err := vault.store(context.Background(), descriptor, testVaultStoreOperationID, []byte("template")); err != nil {
 		t.Fatalf("Store() error = %v", err)
 	}
 
@@ -132,11 +137,45 @@ func TestVaultRejectsTamperAndWrongKey(t *testing.T) {
 	}
 }
 
+func TestVaultRejectsLegacyOuterAndPlaintextFormats(t *testing.T) {
+	descriptor := testDescriptor()
+	key := testKey(17)
+	aead, err := newAEAD(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce := make([]byte, aead.NonceSize())
+	for _, test := range []struct {
+		name  string
+		magic string
+		plain []byte
+	}{
+		{name: "v1 outer format", magic: "PIEBIOV1", plain: []byte("legacy-template")},
+		{name: "unenveloped plaintext", magic: fileMagic, plain: []byte("legacy-template")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "vault")
+			if err := os.Mkdir(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			encoded := append([]byte(test.magic), nonce...)
+			encoded = aead.Seal(encoded, nonce, test.plain, authenticatedMetadata(descriptor))
+			if err := os.WriteFile(onlyExpectedPath(t, root, descriptor), encoded, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			vault := newTestVault(t, root, key)
+			if _, err := vault.Open(context.Background(), descriptor); !fault.IsCode(err, fault.AdapterRejected) {
+				t.Fatalf("Open(legacy format) error = %v, want AdapterRejected", err)
+			}
+		})
+	}
+}
+
 func TestVaultRejectsCiphertextCopiedUnderAnotherTemplateReference(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "vault")
 	descriptor := testDescriptor()
 	vault := newTestVault(t, root, testKey(10))
-	if err := vault.Store(context.Background(), descriptor, []byte("template")); err != nil {
+	if err := vault.store(context.Background(), descriptor, testVaultStoreOperationID, []byte("template")); err != nil {
 		t.Fatalf("Store() error = %v", err)
 	}
 	encoded := readOnlyVaultFile(t, root)
@@ -156,7 +195,7 @@ func TestVaultFailsClosedWhenMasterKeyIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if err := vault.Store(context.Background(), testDescriptor(), []byte("template")); !fault.IsCode(err, fault.Unavailable) {
+	if err := vault.store(context.Background(), testDescriptor(), testVaultStoreOperationID, []byte("template")); !fault.IsCode(err, fault.Unavailable) {
 		t.Fatalf("Store() error = %v, want Unavailable", err)
 	}
 	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
@@ -171,7 +210,7 @@ func TestVaultDeleteAuthenticatesDescriptorAndIsIdempotent(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "vault")
 	descriptor := testDescriptor()
 	vault := newTestVault(t, root, testKey(5))
-	if err := vault.Store(context.Background(), descriptor, []byte("template")); err != nil {
+	if err := vault.store(context.Background(), descriptor, testVaultStoreOperationID, []byte("template")); err != nil {
 		t.Fatalf("Store() error = %v", err)
 	}
 	withoutKey, err := New(root, failingKeyProvider{err: errors.New("keyring unavailable")})
@@ -204,7 +243,7 @@ func TestVaultRejectsUnsafePathsAndTemplateFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 		vault := newTestVault(t, root, testKey(11))
-		if err := vault.Store(context.Background(), testDescriptor(), []byte("template")); !fault.IsCode(err, fault.PermissionDenied) {
+		if err := vault.store(context.Background(), testDescriptor(), testVaultStoreOperationID, []byte("template")); !fault.IsCode(err, fault.PermissionDenied) {
 			t.Fatalf("Store() error = %v, want PermissionDenied", err)
 		}
 		info, err := os.Stat(root)
@@ -232,7 +271,7 @@ func TestVaultRejectsUnsafePathsAndTemplateFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 		vault := newTestVault(t, root, testKey(6))
-		if err := vault.Store(context.Background(), descriptor, []byte("template")); !fault.IsCode(err, fault.PermissionDenied) {
+		if err := vault.store(context.Background(), descriptor, testVaultStoreOperationID, []byte("template")); !fault.IsCode(err, fault.PermissionDenied) {
 			t.Fatalf("Store() error = %v, want PermissionDenied", err)
 		}
 		if _, err := vault.Open(context.Background(), descriptor); !fault.IsCode(err, fault.PermissionDenied) {
@@ -276,7 +315,7 @@ func TestVaultRejectsUnsafePathsAndTemplateFiles(t *testing.T) {
 		root := filepath.Join(t.TempDir(), "vault")
 		vault := newTestVault(t, root, testKey(12))
 		descriptor := testDescriptor()
-		if err := vault.Store(context.Background(), descriptor, []byte("template")); err != nil {
+		if err := vault.store(context.Background(), descriptor, testVaultStoreOperationID, []byte("template")); err != nil {
 			t.Fatal(err)
 		}
 		path := onlyVaultPath(t, root)
@@ -296,14 +335,14 @@ func TestVaultCleansCrashOrphanBeforeIdempotentRecovery(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "vault")
 	vault := newTestVault(t, root, testKey(13))
 	descriptor := testDescriptor()
-	if err := vault.Store(context.Background(), descriptor, []byte("template")); err != nil {
+	if err := vault.store(context.Background(), descriptor, testVaultStoreOperationID, []byte("template")); err != nil {
 		t.Fatal(err)
 	}
 	orphan := filepath.Join(root, ".biometric-crash.tmp")
 	if err := os.Link(onlyVaultPath(t, root), orphan); err != nil {
 		t.Fatal(err)
 	}
-	if err := vault.Store(context.Background(), descriptor, []byte("template")); err != nil {
+	if err := vault.store(context.Background(), descriptor, testVaultStoreOperationID, []byte("template")); err != nil {
 		t.Fatalf("Store(recover) error = %v", err)
 	}
 	if _, err := os.Lstat(orphan); !errors.Is(err, os.ErrNotExist) {
@@ -319,18 +358,21 @@ func TestVaultValidatesInputAndContextBeforeFilesystemAccess(t *testing.T) {
 	vault := newTestVault(t, root, testKey(8))
 	invalid := testDescriptor()
 	invalid.ProfileRef = " profile-a"
-	if err := vault.Store(context.Background(), invalid, []byte("template")); !fault.IsCode(err, fault.InvalidInput) {
+	if err := vault.store(context.Background(), invalid, testVaultStoreOperationID, []byte("template")); !fault.IsCode(err, fault.InvalidInput) {
 		t.Fatalf("Store(invalid descriptor) error = %v, want InvalidInput", err)
 	}
-	if err := vault.Store(context.Background(), testDescriptor(), nil); !fault.IsCode(err, fault.InvalidInput) {
+	if err := vault.store(context.Background(), testDescriptor(), "not-an-operation", []byte("template")); !fault.IsCode(err, fault.InvalidInput) {
+		t.Fatalf("Store(invalid operation) error = %v, want InvalidInput", err)
+	}
+	if err := vault.store(context.Background(), testDescriptor(), testVaultStoreOperationID, nil); !fault.IsCode(err, fault.InvalidInput) {
 		t.Fatalf("Store(empty template) error = %v, want InvalidInput", err)
 	}
-	if err := vault.Store(context.Background(), testDescriptor(), make([]byte, maxTemplateBytes+1)); !fault.IsCode(err, fault.InvalidInput) {
+	if err := vault.store(context.Background(), testDescriptor(), testVaultStoreOperationID, make([]byte, maxTemplateBytes+1)); !fault.IsCode(err, fault.InvalidInput) {
 		t.Fatalf("Store(oversized template) error = %v, want InvalidInput", err)
 	}
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := vault.Store(cancelled, testDescriptor(), []byte("template")); !fault.IsCode(err, fault.Unavailable) {
+	if err := vault.store(cancelled, testDescriptor(), testVaultStoreOperationID, []byte("template")); !fault.IsCode(err, fault.Unavailable) {
 		t.Fatalf("Store(cancelled) error = %v, want Unavailable", err)
 	}
 	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
@@ -342,7 +384,7 @@ func TestVaultEntropyFailureNeverPublishesTemplate(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "vault")
 	vault := newTestVault(t, root, testKey(14))
 	vault.random = failingReader{err: errors.New("entropy unavailable")}
-	if err := vault.Store(context.Background(), testDescriptor(), []byte("template")); !fault.IsCode(err, fault.Unavailable) {
+	if err := vault.store(context.Background(), testDescriptor(), testVaultStoreOperationID, []byte("template")); !fault.IsCode(err, fault.Unavailable) {
 		t.Fatalf("Store() error = %v, want Unavailable", err)
 	}
 	entries, err := os.ReadDir(root)
@@ -365,7 +407,7 @@ func TestVaultSerializesConcurrentIdempotentStores(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			errorsSeen <- vault.Store(context.Background(), testDescriptor(), []byte("same-template"))
+			errorsSeen <- vault.store(context.Background(), testDescriptor(), testVaultStoreOperationID, []byte("same-template"))
 		}()
 	}
 	wait.Wait()
@@ -397,7 +439,7 @@ func TestAuthenticatedRemovalRejectsReplacedInode(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "vault")
 	vault := newTestVault(t, root, testKey(16))
 	descriptor := testDescriptor()
-	if err := vault.Store(context.Background(), descriptor, []byte("original")); err != nil {
+	if err := vault.store(context.Background(), descriptor, testVaultStoreOperationID, []byte("original")); err != nil {
 		t.Fatal(err)
 	}
 	path := onlyVaultPath(t, root)
