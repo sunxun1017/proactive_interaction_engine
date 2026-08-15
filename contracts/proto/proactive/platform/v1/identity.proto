@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package proactive.platform.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "proactive-interaction-engine/gen/go/proactive/platform/v1;platformv1";
+
+// IdentityEvidenceIngressService accepts only biometric candidate fragments.
+// Acceptance is not a trusted identity result. A bounded application-owned
+// coordinator validates and groups fragments, then resolves exactly once only
+// after the issued evidence window closes. A handler must never resolve or
+// publish identity from one arriving fragment.
+service IdentityEvidenceIngressService {
+  rpc PublishFaceIdentificationEvidence(PublishFaceIdentificationEvidenceRequest) returns (PublishFaceIdentificationEvidenceResponse);
+  rpc PublishSpeakerIdentificationEvidence(PublishSpeakerIdentificationEvidenceRequest) returns (PublishSpeakerIdentificationEvidenceResponse);
+  rpc PublishSpeakerVerificationEvidence(PublishSpeakerVerificationEvidenceRequest) returns (PublishSpeakerVerificationEvidenceResponse);
+}
+
+// IdentityEvidenceMetadata is transport and lease metadata shared by the
+// three strongly typed RPCs. It contains no media, embedding or template.
+message IdentityEvidenceMetadata {
+  string fragment_id = 1;
+  string provider_lease_id = 2;
+  string source_instance_id = 3;
+  uint64 source_seq = 4;
+  // occurred_at is the event time shared by every candidate in this fragment.
+  google.protobuf.Timestamp occurred_at = 5;
+  google.protobuf.Duration ttl = 6;
+  string trace_id = 7;
+  // The application issues this short-lived grouping token before sensing.
+  // Providers only echo it; worker-generated or expired windows are rejected.
+  string evidence_window_id = 8;
+}
+
+message PublishFaceIdentificationEvidenceRequest {
+  IdentityEvidenceMetadata metadata = 1;
+  // Number of people observed in the frame used for this evidence. Values
+  // above one force anonymous resolution even if one candidate scores highly.
+  uint32 faces_observed = 2;
+  repeated FaceIdentificationCandidate candidates = 3;
+}
+
+message PublishFaceIdentificationEvidenceResponse {
+  IdentityEvidenceReceipt receipt = 1;
+}
+
+message FaceIdentificationCandidate {
+  string candidate_id = 1;
+  string profile_ref = 2;
+  double score = 3;
+  string model_version = 4;
+  FaceLivenessState liveness = 5;
+}
+
+enum FaceLivenessState {
+  // Transport boundaries reject UNSPECIFIED rather than guessing UNKNOWN.
+  FACE_LIVENESS_STATE_UNSPECIFIED = 0;
+  FACE_LIVENESS_STATE_UNKNOWN = 1;
+  FACE_LIVENESS_STATE_PASSED = 2;
+  FACE_LIVENESS_STATE_FAILED = 3;
+}
+
+message PublishSpeakerIdentificationEvidenceRequest {
+  IdentityEvidenceMetadata metadata = 1;
+  repeated SpeakerIdentificationCandidate candidates = 2;
+}
+
+message PublishSpeakerIdentificationEvidenceResponse {
+  IdentityEvidenceReceipt receipt = 1;
+}
+
+message SpeakerIdentificationCandidate {
+  string candidate_id = 1;
+  string profile_ref = 2;
+  double score = 3;
+  string model_version = 4;
+}
+
+message PublishSpeakerVerificationEvidenceRequest {
+  IdentityEvidenceMetadata metadata = 1;
+  // The application issued and owns this short-lived, single-use challenge.
+  // The provider never supplies the expected profile reference.
+  string verification_challenge_id = 2;
+  string candidate_id = 3;
+  double score = 4;
+  string model_version = 5;
+}
+
+message PublishSpeakerVerificationEvidenceResponse {
+  IdentityEvidenceReceipt receipt = 1;
+}
+
+message IdentityEvidenceReceipt {
+  // ACCEPTED only confirms structural, routing and global-policy acceptance
+  // into the bounded application window. It never reveals whether a profile
+  // is consented, enrolled, matched, or uses the expected model version.
+  string fragment_id = 1;
+  IdentityEvidenceReceiptStatus status = 2;
+  IdentityEvidenceReceiptReason reason = 3;
+}
+
+enum IdentityEvidenceReceiptStatus {
+  IDENTITY_EVIDENCE_RECEIPT_STATUS_UNSPECIFIED = 0;
+  IDENTITY_EVIDENCE_RECEIPT_STATUS_ACCEPTED = 1;
+  IDENTITY_EVIDENCE_RECEIPT_STATUS_DUPLICATE = 2;
+  IDENTITY_EVIDENCE_RECEIPT_STATUS_STALE = 3;
+  IDENTITY_EVIDENCE_RECEIPT_STATUS_REJECTED = 4;
+}
+
+// IdentityEvidenceReceiptReason is intentionally finite. Human diagnostics
+// belong in local logs and must not drive machine control flow.
+enum IdentityEvidenceReceiptReason {
+  IDENTITY_EVIDENCE_RECEIPT_REASON_UNSPECIFIED = 0;
+  IDENTITY_EVIDENCE_RECEIPT_REASON_NONE = 1;
+  IDENTITY_EVIDENCE_RECEIPT_REASON_INVALID = 2;
+  IDENTITY_EVIDENCE_RECEIPT_REASON_DUPLICATE = 3;
+  IDENTITY_EVIDENCE_RECEIPT_REASON_STALE = 4;
+  IDENTITY_EVIDENCE_RECEIPT_REASON_LEASE_REJECTED = 5;
+  IDENTITY_EVIDENCE_RECEIPT_REASON_PROVIDER_NOT_SELECTED = 6;
+  // Detailed application policy state is intentionally collapsed. In
+  // particular, per-profile consent, enrollment and model checks happen only
+  // during internal resolution and never change the Provider receipt.
+  IDENTITY_EVIDENCE_RECEIPT_REASON_POLICY_REJECTED = 7;
+}
