@@ -395,9 +395,11 @@ func TestDesktopIdentityRuntimeRejectsNilAdvanceContext(t *testing.T) {
 		newIdentityPermissionReader(privacy.Snapshot{}),
 		newIdentityCatalogReader(biometric.Snapshot{}),
 	)
+	//lint:ignore SA1012 This boundary must reject a nil caller context.
 	if _, err := runtime.AdvanceIdentification(nil, identity.IdentificationWakeup{}); !fault.IsCode(err, fault.InvalidInput) {
 		t.Fatalf("AdvanceIdentification(nil) error = %v, want InvalidInput", err)
 	}
+	//lint:ignore SA1012 This boundary must reject a nil caller context.
 	if _, err := runtime.AdvanceVerification(nil, identity.SpeakerVerificationWakeup{}); !fault.IsCode(err, fault.InvalidInput) {
 		t.Fatalf("AdvanceVerification(nil) error = %v, want InvalidInput", err)
 	}

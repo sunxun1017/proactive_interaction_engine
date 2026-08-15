@@ -232,7 +232,7 @@ func (s *Server) currentState(
 	knownPermissions *privacy.Snapshot,
 	providers provider.Snapshot,
 ) (*platformv1.DesktopState, error) {
-	permissions := privacy.Snapshot{}
+	var permissions privacy.Snapshot
 	if knownPermissions != nil {
 		permissions = clonePrivacySnapshot(*knownPermissions)
 	} else {

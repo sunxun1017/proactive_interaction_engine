@@ -42,17 +42,13 @@ func TestGeneratedClientRejectInteractionUsesControlSubmitter(t *testing.T) {
 	}
 	t.Cleanup(stopAndJoin)
 
-	dialCtx, cancelDial := context.WithTimeout(context.Background(), time.Second)
-	defer cancelDial()
-	connection, err := grpc.DialContext(
-		dialCtx,
-		"bufconn",
-		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+	connection, err := grpc.NewClient(
+		"passthrough:///bufconn",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 	if err != nil {
-		t.Fatalf("grpc DialContext() error = %v", err)
+		t.Fatalf("grpc NewClient() error = %v", err)
 	}
 	t.Cleanup(func() { _ = connection.Close() })
 

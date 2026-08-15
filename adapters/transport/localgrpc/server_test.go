@@ -92,18 +92,14 @@ func TestRunServesRegisteredGRPCAndCancellationCleansOwnedPaths(t *testing.T) {
 	runDone := make(chan error, 1)
 	go func() { runDone <- server.Run(ctx) }()
 
-	dialCtx, dialCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	connection, err := grpc.DialContext(
-		dialCtx,
+	connection, err := grpc.NewClient(
 		server.Address(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
-	dialCancel()
 	if err != nil {
 		cancel()
 		waitRun(t, runDone)
-		t.Fatalf("DialContext() error = %v", err)
+		t.Fatalf("NewClient() error = %v", err)
 	}
 	checkCtx, checkCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	_, err = healthv1.NewHealthClient(connection).Check(checkCtx, &healthv1.HealthCheckRequest{})

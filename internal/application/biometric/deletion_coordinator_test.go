@@ -216,6 +216,7 @@ func TestDeletionCoordinatorValidatesDependenciesAndContext(t *testing.T) {
 		})
 	}
 	coordinator := newTestDeletionCoordinator(t, service, deleter)
+	//lint:ignore SA1012 This boundary must reject a nil caller context.
 	if _, err := coordinator.RetryPendingDeletes(nil); !fault.IsCode(err, fault.InvalidInput) {
 		t.Fatalf("RetryPendingDeletes(nil) error = %v, want InvalidInput", err)
 	}
