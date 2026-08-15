@@ -1,11 +1,18 @@
+from collections import UserDict
 import datetime
+import threading
 import unittest
 import uuid
 
 import grpc
 from proactive.platform.v1 import adapter_pb2, capability_pb2
 
-from workers.provider import ProviderConfig, ProviderSession
+from workers.provider import (
+    ProviderConfig,
+    ProviderConnection,
+    ProviderSession,
+    parse_provider_bindings,
+)
 
 
 UTC = datetime.timezone.utc
@@ -138,18 +145,20 @@ class ProviderSessionTest(unittest.TestCase):
 
     def test_lost_lease_suppresses_publish_until_reregistered(self):
         self.session.start()
+        self.assertTrue(self.session.publish_presence(False))
         self.registry.heartbeat_error = FakeRPCError(grpc.StatusCode.NOT_FOUND)
 
         self.now += datetime.timedelta(seconds=5)
         self.assertFalse(self.session.maintain())
         self.assertFalse(self.session.publish_presence(True))
-        self.assertEqual(self.ingress.publishes, [])
+        self.assertEqual(len(self.ingress.publishes), 1)
 
         self.registry.heartbeat_error = None
         self.assertTrue(self.session.maintain())
         self.assertEqual(len(self.registry.registers), 2)
         self.assertTrue(self.session.publish_presence(True))
-        self.assertEqual(self.ingress.publishes[0][0].provider_lease_id, "lease-2")
+        self.assertEqual(self.ingress.publishes[-1][0].provider_lease_id, "lease-2")
+        self.assertEqual(self.ingress.publishes[-1][0].observation.source_seq, 2)
 
     def test_close_uses_bounded_unregister_and_disables_future_publish(self):
         self.session.start()
@@ -166,6 +175,220 @@ class ProviderSessionTest(unittest.TestCase):
 
         self.assertFalse(self.session.publish_presence(True))
         self.assertTrue(self.session.active)
+
+    def test_unhealthy_desired_state_survives_heartbeat_and_reregistration(self):
+        self.assertFalse(self.session.mark_unhealthy("MODEL_UNAVAILABLE"))
+        self.assertFalse(self.session.start())
+        self.assertTrue(self.session.leased)
+        self.assertFalse(self.session.active)
+        self.assertEqual(
+            self.registry.heartbeats[-1][0].health_reason,
+            capability_pb2.PROVIDER_HEALTH_REASON_MODEL_UNAVAILABLE,
+        )
+
+        self.now += datetime.timedelta(seconds=15)
+        self.registry.now = self.now
+        self.assertFalse(self.session.maintain())
+
+        self.assertEqual(len(self.registry.registers), 2)
+        heartbeat = self.registry.heartbeats[-1][0]
+        self.assertEqual(heartbeat.health, capability_pb2.PROVIDER_HEALTH_STATE_UNHEALTHY)
+        self.assertEqual(heartbeat.health_reason, capability_pb2.PROVIDER_HEALTH_REASON_MODEL_UNAVAILABLE)
+
+    def test_independent_sessions_share_connection_but_not_lease_or_sequence(self):
+        channel = FakeChannel()
+        connection = ProviderConnection(channel, self.registry, self.ingress)
+        face = connection.session(
+            provider_config("face", capability_pb2.SERVICE_CAPABILITY_KIND_FACE_DETECTION),
+            utcnow=lambda: self.now,
+        )
+        speaker = connection.session(
+            provider_config("speaker", capability_pb2.SERVICE_CAPABILITY_KIND_SPEAKER_IDENTIFICATION),
+            utcnow=lambda: self.now,
+        )
+
+        self.assertTrue(face.start())
+        self.assertTrue(speaker.start())
+        self.assertNotEqual(face.lease_id, speaker.lease_id)
+        self.assertEqual(face.next_source_sequence(), 1)
+        self.assertEqual(face.next_source_sequence(), 2)
+        self.assertEqual(speaker.next_source_sequence(), 1)
+
+        face.close()
+        speaker.close()
+        self.assertEqual(channel.closed, 0)
+        connection.close()
+        connection.close()
+        self.assertEqual(channel.closed, 1)
+
+    def test_health_reasons_are_complete_and_invalid_pairs_are_rejected(self):
+        self.session.start()
+        for reason in (
+            "DEVICE_UNAVAILABLE",
+            "PERMISSION_DENIED",
+            "DEPENDENCY_UNAVAILABLE",
+            "MODEL_UNAVAILABLE",
+            "INTERNAL_ERROR",
+            "SHUTTING_DOWN",
+        ):
+            with self.subTest(reason=reason):
+                self.session.mark_unhealthy(reason)
+                self.assertEqual(
+                    capability_pb2.ProviderHealthReason.Name(
+                        self.registry.heartbeats[-1][0].health_reason
+                    ),
+                    "PROVIDER_HEALTH_REASON_" + reason,
+                )
+        with self.assertRaises(ValueError):
+            self.session.mark_unhealthy("UNKNOWN_REASON")
+
+    def test_publish_failure_cannot_clear_a_concurrently_replaced_lease(self):
+        self.session.start()
+        self.ingress.block = threading.Event()
+        self.ingress.entered = threading.Event()
+        self.ingress.error = FakeRPCError(grpc.StatusCode.UNAVAILABLE)
+        result = []
+        thread = threading.Thread(target=lambda: result.append(self.session.publish_presence(True)))
+        thread.start()
+        self.assertTrue(self.ingress.entered.wait(1))
+
+        self.now += datetime.timedelta(seconds=15)
+        self.registry.now = self.now
+        self.assertTrue(self.session.maintain())
+        self.assertEqual(self.session.lease_id, "lease-2")
+        self.ingress.block.set()
+        thread.join(1)
+
+        self.assertEqual(result, [False])
+        self.assertEqual(self.session.lease_id, "lease-2")
+        self.assertTrue(self.session.active)
+
+    def test_close_racing_with_publish_never_reports_success(self):
+        self.session.start()
+        self.ingress.block = threading.Event()
+        self.ingress.entered = threading.Event()
+        result = []
+        thread = threading.Thread(target=lambda: result.append(self.session.publish_presence(True)))
+        thread.start()
+        self.assertTrue(self.ingress.entered.wait(1))
+
+        self.session.close()
+        self.ingress.block.set()
+        thread.join(1)
+
+        self.assertEqual(result, [False])
+        self.assertFalse(self.session.active)
+
+
+class ProviderBindingEnvironmentTest(unittest.TestCase):
+    def test_parses_exact_sorted_vision_subset(self):
+        bindings = parse_provider_bindings(
+            {
+                "PROACTIVE_PROVIDER_COUNT": "2",
+                "PROACTIVE_PROVIDER_0_ID": "desktop-presence",
+                "PROACTIVE_PROVIDER_0_CAPABILITY": "PERSON_PRESENCE",
+                "PROACTIVE_PROVIDER_1_ID": "local-face-detection",
+                "PROACTIVE_PROVIDER_1_CAPABILITY": "FACE_DETECTION",
+                "PATH": "/bin",
+            },
+            "vision",
+        )
+        self.assertEqual(
+            [(item.provider_id, item.capability_name) for item in bindings],
+            [
+                ("desktop-presence", "PERSON_PRESENCE"),
+                ("local-face-detection", "FACE_DETECTION"),
+            ],
+        )
+
+    def test_accepts_os_environ_like_mapping_with_string_entries(self):
+        environment = UserDict({
+            "PROACTIVE_PROVIDER_COUNT": "1",
+            "PROACTIVE_PROVIDER_0_ID": "desktop-vad",
+            "PROACTIVE_PROVIDER_0_CAPABILITY": "VOICE_ACTIVITY",
+        })
+        self.assertEqual(parse_provider_bindings(environment, "audio")[0].provider_id, "desktop-vad")
+        environment["NOT_A_STRING_VALUE"] = 1
+        with self.assertRaises(ValueError):
+            parse_provider_bindings(environment, "audio")
+
+    def test_rejects_missing_extra_unsorted_duplicate_or_wrong_stack_bindings(self):
+        base = {
+            "PROACTIVE_PROVIDER_COUNT": "2",
+            "PROACTIVE_PROVIDER_0_ID": "desktop-vad",
+            "PROACTIVE_PROVIDER_0_CAPABILITY": "VOICE_ACTIVITY",
+            "PROACTIVE_PROVIDER_1_ID": "local-speaker-identity",
+            "PROACTIVE_PROVIDER_1_CAPABILITY": "SPEAKER_IDENTIFICATION",
+        }
+        invalid = []
+        missing = dict(base)
+        del missing["PROACTIVE_PROVIDER_1_CAPABILITY"]
+        invalid.append(missing)
+        extra = dict(base)
+        extra["PROACTIVE_PROVIDER_2_ID"] = "extra"
+        invalid.append(extra)
+        unsorted = dict(base)
+        unsorted["PROACTIVE_PROVIDER_0_ID"], unsorted["PROACTIVE_PROVIDER_1_ID"] = (
+            unsorted["PROACTIVE_PROVIDER_1_ID"],
+            unsorted["PROACTIVE_PROVIDER_0_ID"],
+        )
+        invalid.append(unsorted)
+        duplicate = dict(base)
+        duplicate["PROACTIVE_PROVIDER_1_CAPABILITY"] = "VOICE_ACTIVITY"
+        invalid.append(duplicate)
+        wrong_stack = dict(base)
+        wrong_stack["PROACTIVE_PROVIDER_1_CAPABILITY"] = "FACE_DETECTION"
+        invalid.append(wrong_stack)
+        missing_base = dict(base)
+        missing_base["PROACTIVE_PROVIDER_0_CAPABILITY"] = "SPEAKER_VERIFICATION"
+        invalid.append(missing_base)
+        noncanonical_count = dict(base)
+        noncanonical_count["PROACTIVE_PROVIDER_COUNT"] = "02"
+        invalid.append(noncanonical_count)
+
+        for environment in invalid:
+            with self.subTest(environment=environment):
+                with self.assertRaises(ValueError):
+                    parse_provider_bindings(environment, "audio")
+
+    def test_rejects_reserved_prefix_even_when_count_is_zero_or_stack_unknown(self):
+        with self.assertRaises(ValueError):
+            parse_provider_bindings({"PROACTIVE_PROVIDER_COUNT": "0"}, "vision")
+        with self.assertRaises(ValueError):
+            parse_provider_bindings(
+                {
+                    "PROACTIVE_PROVIDER_COUNT": "1",
+                    "PROACTIVE_PROVIDER_0_ID": "desktop-presence",
+                    "PROACTIVE_PROVIDER_0_CAPABILITY": "PERSON_PRESENCE",
+                    "PROACTIVE_PROVIDER_DEBUG": "1",
+                },
+                "vision",
+            )
+        with self.assertRaises(ValueError):
+            parse_provider_bindings({}, "unknown")
+
+
+def provider_config(provider_id, capability):
+    return ProviderConfig(
+        provider_id=provider_id,
+        instance_id="shared-instance",
+        capability=capability,
+        implementation_version="fake.v1",
+        privacy_class=capability_pb2.PROVIDER_PRIVACY_CLASS_DEVICE_LOCAL,
+        maximum_latency=datetime.timedelta(seconds=1),
+        cancellation_semantics=capability_pb2.PROVIDER_CANCELLATION_SEMANTICS_COOPERATIVE,
+        device_requirements=(capability_pb2.PROVIDER_DEVICE_CLASS_CAMERA,),
+        subject_id="user-1",
+        observation_ttl=datetime.timedelta(seconds=1),
+    )
+
+
+class FakeChannel:
+    def __init__(self):
+        self.closed = 0
+
+    def close(self):
+        self.closed += 1
 
 
 class FakeRPCError(grpc.RpcError):
@@ -208,9 +431,18 @@ class FakeIngress:
     def __init__(self):
         self.publishes = []
         self.status = adapter_pb2.RECEIPT_STATUS_ACCEPTED
+        self.block = None
+        self.entered = None
+        self.error = None
 
     def Publish(self, request, timeout):
         self.publishes.append((request, timeout))
+        if self.entered is not None:
+            self.entered.set()
+        if self.block is not None:
+            self.block.wait(1)
+        if self.error is not None:
+            raise self.error
         return adapter_pb2.PublishResponse(
             receipt=adapter_pb2.ObservationReceipt(
                 observation_id=request.observation.id,

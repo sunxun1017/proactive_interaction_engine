@@ -1,7 +1,9 @@
 """Shared leased provider session for local media workers."""
 
 from dataclasses import dataclass
+from collections.abc import Mapping
 import datetime
+import threading
 import uuid
 
 import grpc
@@ -10,6 +12,87 @@ from proactive.platform.v1 import adapter_pb2, capability_pb2, observation_pb2
 
 
 UTC = datetime.timezone.utc
+_PROVIDER_PREFIX = "PROACTIVE_PROVIDER_"
+
+
+@dataclass(frozen=True)
+class ProviderBinding:
+    provider_id: str
+    capability_name: str
+    capability: int
+
+
+_STACK_CAPABILITIES = {
+    "vision": (
+        4,
+        "PERSON_PRESENCE",
+        {
+            "PERSON_PRESENCE": capability_pb2.SERVICE_CAPABILITY_KIND_PERSON_PRESENCE,
+            "FACE_DETECTION": capability_pb2.SERVICE_CAPABILITY_KIND_FACE_DETECTION,
+            "FACE_IDENTIFICATION": capability_pb2.SERVICE_CAPABILITY_KIND_FACE_IDENTIFICATION,
+            "FACE_LIVENESS": capability_pb2.SERVICE_CAPABILITY_KIND_FACE_LIVENESS,
+        },
+    ),
+    "audio": (
+        3,
+        "VOICE_ACTIVITY",
+        {
+            "VOICE_ACTIVITY": capability_pb2.SERVICE_CAPABILITY_KIND_VOICE_ACTIVITY,
+            "SPEAKER_IDENTIFICATION": capability_pb2.SERVICE_CAPABILITY_KIND_SPEAKER_IDENTIFICATION,
+            "SPEAKER_VERIFICATION": capability_pb2.SERVICE_CAPABILITY_KIND_SPEAKER_VERIFICATION,
+        },
+    ),
+}
+
+
+def parse_provider_bindings(environment, stack):
+    """Parse the exact Supervisor-owned provider subset for one device stack."""
+
+    if not isinstance(environment, Mapping) or stack not in _STACK_CAPABILITIES:
+        raise ValueError("provider environment and known stack are required")
+    if any(not isinstance(key, str) or not isinstance(value, str) for key, value in environment.items()):
+        raise ValueError("provider environment keys and values must be strings")
+    maximum, base, allowed = _STACK_CAPABILITIES[stack]
+    count_value = environment.get("PROACTIVE_PROVIDER_COUNT")
+    try:
+        count = int(count_value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("provider count is required") from error
+    if str(count) != count_value or not 1 <= count <= maximum:
+        raise ValueError("provider count is invalid for stack")
+
+    expected = {"PROACTIVE_PROVIDER_COUNT"}
+    for index in range(count):
+        expected.add(f"PROACTIVE_PROVIDER_{index}_ID")
+        expected.add(f"PROACTIVE_PROVIDER_{index}_CAPABILITY")
+    actual = {key for key in environment if key.startswith(_PROVIDER_PREFIX)}
+    if actual != expected:
+        raise ValueError("provider environment has missing or unexpected fields")
+
+    bindings = []
+    seen_ids = set()
+    seen_capabilities = set()
+    for index in range(count):
+        provider_id = environment[f"PROACTIVE_PROVIDER_{index}_ID"]
+        capability_name = environment[f"PROACTIVE_PROVIDER_{index}_CAPABILITY"]
+        if (
+            not isinstance(provider_id, str)
+            or not provider_id
+            or provider_id.strip() != provider_id
+            or len(provider_id.encode("utf-8")) > 256
+            or capability_name not in allowed
+            or provider_id in seen_ids
+            or capability_name in seen_capabilities
+        ):
+            raise ValueError("provider binding is invalid")
+        seen_ids.add(provider_id)
+        seen_capabilities.add(capability_name)
+        bindings.append(ProviderBinding(provider_id, capability_name, allowed[capability_name]))
+    if base not in seen_capabilities:
+        raise ValueError("provider stack base capability is required")
+    if [item.provider_id for item in bindings] != sorted(item.provider_id for item in bindings):
+        raise ValueError("provider bindings must be sorted by provider id")
+    return tuple(bindings)
 
 
 @dataclass(frozen=True)
@@ -67,6 +150,55 @@ class ProviderConfig:
             raise ValueError("heartbeat interval and RPC timeout must be positive")
 
 
+class ProviderConnection:
+    """Own one process-wide channel and create independent Provider sessions."""
+
+    def __init__(self, channel, registry, ingress):
+        if channel is None or registry is None or ingress is None:
+            raise ValueError("channel, registry, and ingress are required")
+        self._channel = channel
+        self._registry = registry
+        self._ingress = ingress
+        self._closed = False
+        self._lock = threading.Lock()
+
+    @classmethod
+    def connect(cls, address):
+        if not address or address.strip() != address:
+            raise ValueError("gRPC address is required")
+        channel = grpc.insecure_channel(address)
+        from proactive.platform.v1 import adapter_pb2_grpc, capability_pb2_grpc
+
+        return cls(
+            channel,
+            capability_pb2_grpc.CapabilityProviderRegistryServiceStub(channel),
+            adapter_pb2_grpc.ObservationIngressServiceStub(channel),
+        )
+
+    @property
+    def channel(self):
+        return self._channel
+
+    def session(self, config, *, utcnow=None, uuid_factory=None):
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("provider connection is closed")
+        return ProviderSession(
+            config,
+            self._registry,
+            self._ingress,
+            utcnow=utcnow,
+            uuid_factory=uuid_factory,
+        )
+
+    def close(self):
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+        self._channel.close()
+
+
 class ProviderSession:
     """Maintains one provider lease without retaining media or hiding a thread."""
 
@@ -85,60 +217,110 @@ class ProviderSession:
         self._healthy = False
         self._closed = False
         self._source_seq = 0
+        self._desired_health = capability_pb2.PROVIDER_HEALTH_STATE_HEALTHY
+        self._desired_reason = capability_pb2.PROVIDER_HEALTH_REASON_NONE
+        self._lock = threading.RLock()
 
     @classmethod
     def connect(cls, address, config):
-        if not address or address.strip() != address:
-            raise ValueError("gRPC address is required")
-        channel = grpc.insecure_channel(address)
-        from proactive.platform.v1 import adapter_pb2_grpc, capability_pb2_grpc
+        connection = ProviderConnection.connect(address)
+        session = connection.session(config)
+        session._channel = connection
+        return session
 
-        return cls(
-            config,
-            capability_pb2_grpc.CapabilityProviderRegistryServiceStub(channel),
-            adapter_pb2_grpc.ObservationIngressServiceStub(channel),
-            channel=channel,
-        )
+    @property
+    def lease_id(self):
+        with self._lock:
+            return self._lease_id
+
+    @property
+    def capability(self):
+        return self._config.capability
+
+    @property
+    def instance_id(self):
+        return self._config.instance_id
+
+    @property
+    def rpc_timeout(self):
+        return self._config.rpc_timeout
+
+    @property
+    def observation_ttl(self):
+        return self._config.observation_ttl
+
+    @property
+    def leased(self):
+        with self._lock:
+            return (
+                not self._closed
+                and bool(self._lease_id)
+                and self._expires_at is not None
+                and self._now() < self._expires_at
+            )
 
     @property
     def active(self):
-        if self._closed or not self._healthy or not self._lease_id or self._expires_at is None:
-            return False
-        return self._now() < self._expires_at
+        with self._lock:
+            if self._closed or not self._healthy or not self._lease_id or self._expires_at is None:
+                return False
+            return self._now() < self._expires_at
 
     def start(self):
-        if self._closed or not self._register():
-            return False
-        return self._heartbeat(
-            capability_pb2.PROVIDER_HEALTH_STATE_HEALTHY,
-            capability_pb2.PROVIDER_HEALTH_REASON_NONE,
-        )
+        with self._lock:
+            if self._closed or not self._register():
+                return False
+            return self._heartbeat(self._desired_health, self._desired_reason)
 
     def maintain(self):
-        if self._closed:
-            return False
-        now = self._now()
-        if not self._lease_id or self._expires_at is None or now >= self._expires_at:
-            self._clear_lease()
-            return self.start()
-        if self._next_heartbeat_at is not None and now >= self._next_heartbeat_at:
-            return self._heartbeat(
-                capability_pb2.PROVIDER_HEALTH_STATE_HEALTHY,
-                capability_pb2.PROVIDER_HEALTH_REASON_NONE,
-            )
-        return self.active
+        with self._lock:
+            if self._closed:
+                return False
+            now = self._now()
+            if not self._lease_id or self._expires_at is None or now >= self._expires_at:
+                self._clear_lease()
+                if not self._register():
+                    return False
+                return self._heartbeat(self._desired_health, self._desired_reason)
+            if self._next_heartbeat_at is not None and now >= self._next_heartbeat_at:
+                return self._heartbeat(self._desired_health, self._desired_reason)
+            return self.active
 
     def mark_unhealthy(self, reason):
         reasons = {
             "DEVICE_UNAVAILABLE": capability_pb2.PROVIDER_HEALTH_REASON_DEVICE_UNAVAILABLE,
+            "PERMISSION_DENIED": capability_pb2.PROVIDER_HEALTH_REASON_PERMISSION_DENIED,
             "DEPENDENCY_UNAVAILABLE": capability_pb2.PROVIDER_HEALTH_REASON_DEPENDENCY_UNAVAILABLE,
+            "MODEL_UNAVAILABLE": capability_pb2.PROVIDER_HEALTH_REASON_MODEL_UNAVAILABLE,
             "INTERNAL_ERROR": capability_pb2.PROVIDER_HEALTH_REASON_INTERNAL_ERROR,
             "SHUTTING_DOWN": capability_pb2.PROVIDER_HEALTH_REASON_SHUTTING_DOWN,
         }
         mapped = reasons.get(reason)
-        if mapped is None or not self._lease_id:
-            return False
-        return self._heartbeat(capability_pb2.PROVIDER_HEALTH_STATE_UNHEALTHY, mapped)
+        if mapped is None:
+            raise ValueError("provider health reason is unknown")
+        with self._lock:
+            self._desired_health = capability_pb2.PROVIDER_HEALTH_STATE_UNHEALTHY
+            self._desired_reason = mapped
+            if not self._lease_id:
+                return False
+            return self._heartbeat(self._desired_health, self._desired_reason)
+
+    def mark_healthy(self):
+        with self._lock:
+            self._desired_health = capability_pb2.PROVIDER_HEALTH_STATE_HEALTHY
+            self._desired_reason = capability_pb2.PROVIDER_HEALTH_REASON_NONE
+            if not self._lease_id:
+                return False
+            return self._heartbeat(self._desired_health, self._desired_reason)
+
+    def next_source_sequence(self):
+        with self._lock:
+            if not self.active:
+                raise RuntimeError("provider lease is not healthy")
+            if self._source_seq == (1 << 64) - 1:
+                raise OverflowError("provider source sequence is exhausted")
+            self._source_seq += 1
+            return self._source_seq
 
     def publish_presence(self, present):
         return self._publish(person_presence=observation_pb2.PersonPresence(present=bool(present)))
@@ -147,11 +329,12 @@ class ProviderSession:
         return self._publish(speech_activity=observation_pb2.SpeechActivity(active=True))
 
     def close(self):
-        if self._closed:
-            return
-        self._closed = True
-        lease_id = self._lease_id
-        self._clear_lease()
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            lease_id = self._lease_id
+            self._clear_lease()
         if lease_id:
             try:
                 self._registry.UnregisterCapabilityProvider(
@@ -220,39 +403,45 @@ class ProviderSession:
         return self._healthy
 
     def _publish(self, **payload):
-        if not self.active:
-            return False
-        self._source_seq += 1
-        observation_id = str(self._uuid_factory())
-        occurred_at = timestamp_pb2.Timestamp()
-        occurred_at.FromDatetime(self._now())
-        ttl = duration_pb2.Duration()
-        ttl.FromTimedelta(self._config.observation_ttl)
-        envelope = observation_pb2.ObservationEnvelope(
-            id=observation_id,
-            source_id=self._config.instance_id,
-            source_seq=self._source_seq,
-            occurred_at=occurred_at,
-            ttl=ttl,
-            subject_id=self._config.subject_id,
-            confidence=1.0,
-            trace_id=f"trace:{observation_id}",
-            **payload,
-        )
+        with self._lock:
+            if not self.active:
+                return False
+            sequence = self.next_source_sequence()
+            lease_id = self._lease_id
+            observation_id = str(self._uuid_factory())
+            occurred_at = timestamp_pb2.Timestamp()
+            occurred_at.FromDatetime(self._now())
+            ttl = duration_pb2.Duration()
+            ttl.FromTimedelta(self._config.observation_ttl)
+            envelope = observation_pb2.ObservationEnvelope(
+                id=observation_id,
+                source_id=self._config.instance_id,
+                source_seq=sequence,
+                occurred_at=occurred_at,
+                ttl=ttl,
+                subject_id=self._config.subject_id,
+                confidence=1.0,
+                trace_id=f"trace:{observation_id}",
+                **payload,
+            )
         try:
             response = self._ingress.Publish(
-                adapter_pb2.PublishRequest(observation=envelope, provider_lease_id=self._lease_id),
+                adapter_pb2.PublishRequest(observation=envelope, provider_lease_id=lease_id),
                 timeout=self._config.rpc_timeout,
             )
         except grpc.RpcError:
-            self._clear_lease()
+            self._clear_lease_if_current(lease_id)
             return False
         if response is None or not response.HasField("receipt"):
+            self._clear_lease_if_current(lease_id)
             return False
-        return response.receipt.status in (
-            adapter_pb2.RECEIPT_STATUS_ACCEPTED,
-            adapter_pb2.RECEIPT_STATUS_DUPLICATE,
-        )
+        with self._lock:
+            if self._closed or self._lease_id != lease_id:
+                return False
+            return response.receipt.status in (
+                adapter_pb2.RECEIPT_STATUS_ACCEPTED,
+                adapter_pb2.RECEIPT_STATUS_DUPLICATE,
+            )
 
     def _now(self):
         now = self._utcnow()
@@ -265,6 +454,11 @@ class ProviderSession:
         self._expires_at = None
         self._next_heartbeat_at = None
         self._healthy = False
+
+    def _clear_lease_if_current(self, lease_id):
+        with self._lock:
+            if self._lease_id == lease_id:
+                self._clear_lease()
 
 
 def _response_expiry(response):
