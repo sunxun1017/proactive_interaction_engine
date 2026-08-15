@@ -91,6 +91,8 @@ Application Engine 持有当前专用 continuation，并只向 Runner 暴露不�
 
 模型调用必须有 deadline、cancel、max concurrency、budget、circuit breaker 和本地 fallback。数据库失败进入无持久化模式；模型失败使用本地模板；载体断开取消当前计划；用户拒绝立即取消可中断行为。
 
+语言生成采用版本化的确定性路由策略，而不是 LLM 总控制器或按文本“简单/复杂”猜测的模型级联。路由器只接收 application 已分类的 task、privacy、priority、逐次 cloud 授权、deadline/token budget 和不可变 runtime snapshot，不读取原始文本、不调用模型。P0、静默和取消不调用任何语言后端；实体动作与权限请求只能使用审核模板说明。device-private/sensitive 永不发送云端，cloud 必须同时满足全局启用、逐次显式授权、PUBLIC、网络/健康/熔断/容量、预算和截止时间；local 必须满足显式启用、GPU/健康/熔断/容量、token 和截止时间。fallback 图随计划显式给出，本地失败不得自动升级云端；需要最新外部知识的 cloud 请求失败时只能回退澄清模板，local 不得伪答。当前 v1 仅完成纯策略与严格配置，检入配置保持 template-only，未接入 production composition；详细边界见 ADR 0005。
+
 ## Reproducibility
 
 每个 Decision 记录 `policy_version`、`behavior_version`、`config_hash`、`snapshot_hash`、`model_version`、`random_seed` 和 `trace_id`。相同语义事件日志、配置、版本和随机种子必须得到相同 Decision。

@@ -1,0 +1,21 @@
+schema_version: v1
+policy_version: language-routing.v1
+backends:
+  template:
+    enabled: true
+  local:
+    # v1 is intentionally template-only in production. Unit policy fixtures
+    # exercise the future eligible LOCAL/CLOUD branches without wiring them.
+    enabled: false
+    minimum_remaining_time: 1500ms
+    max_input_tokens: 1024
+    max_output_tokens: 256
+  cloud:
+    # Production composition does not consume this policy yet. Remote
+    # processing remains off until the later opt-in cloud adapter slice.
+    enabled: false
+    minimum_remaining_time: 5s
+    max_input_tokens: 4096
+    max_output_tokens: 512
+    session_token_budget: 8192
+    daily_token_budget: 32768

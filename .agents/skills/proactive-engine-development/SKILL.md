@@ -50,6 +50,7 @@ After the user answers, capture every reusable decision before completing the ta
 - Keep `WorldState` single-writer. Expose immutable snapshots to pure decision functions.
 - Keep the real-time path local and in-memory. Cloud models and durable storage must be optional and must have deadlines and fallbacks.
 - Keep hard guards deterministic. Models may realize language or summarize content, but never authorize physical actions, change safety rules, or persist sensitive memory directly.
+- Route language with versioned deterministic policy over trusted task, privacy, priority, authorization, deadline, budget, and runtime facts; never use an LLM controller or a learned/simple-versus-complex router for hard routing. P0, silence, cancellation, physical actions, and permission changes never invoke a model. Local failure must not authorize cloud disclosure, and cloud is limited to individually authorized public requests.
 - Express plans only with `Sequence`, `Parallel`, `Race`, `Action`, `WaitEvent`, and `Condition` nodes.
 - Emit only capability-supported abstract actions. Hardware adapters retain the right to reject commands.
 - Treat software `StopAll` as cancellation, not as a physical emergency stop.

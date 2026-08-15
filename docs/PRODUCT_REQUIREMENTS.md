@@ -116,6 +116,14 @@ Proactive Interaction Platform 是一个可主动感知时机、发起轻量互�
 - `NO_RESPONSE` 后不追加追问，默认进入 5 分钟冷却。
 - 显式拒绝为 P0，立即停止可中断动作，默认进入 30 分钟冷却。
 
+## Language Realization
+
+语言实现使用三个可选后端而非逐级尝试的“简单/复杂”流水线：审核模板负责欢迎、确认、安全/权限说明、降级与澄清；本地小模型负责有界闲聊和 device-private 表达；云端只处理经逐次显式授权的 PUBLIC 外部知识请求。短问题可能需要实时外部数据，复杂的私人总结仍必须留在本地，因此文本长度和表面复杂度不能决定路由。
+
+路由必须先应用 P0、安全、权限和隐私硬门，再检查 deadline、GPU、network、health、circuit、capacity、token 和 session/daily cloud budget。P0、静默和取消不调用模型；实体动作和传感器/权限变更不能由模型授权。本地失败只回退审核模板，不能因故障自动把内容发送云端。相同 policy、request 与 runtime snapshot 必须得到相同的主后端、fallback 顺序和原因。
+
+当前 language-routing v1 只提供纯确定性策略、严格配置和 canonical hash，检入配置保持 template-only，且尚未连接 production，也不改变现有 VAD-only 回复语义。需要最新外部知识的 cloud 请求失败时只能回退澄清模板，本地模型不得伪答。真正回答自然语言问题仍需后续独立的 ASR/dialogue vertical slice；转写与回复内容不得进入当前 Engine Observation、WorldState 或通用语义审计。
+
 ## Identity Platform
 
 生物识别链路：
