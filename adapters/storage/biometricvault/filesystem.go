@@ -130,19 +130,23 @@ func ensurePrivateDirectory(ctx context.Context, directory, op string) error {
 }
 
 func acquireVaultLock(directory, op string) (func(), error) {
-	path := filepath.Join(directory, vaultLockFilename)
+	return acquirePrivateFileLock(directory, vaultLockFilename, "biometric vault", op)
+}
+
+func acquirePrivateFileLock(directory, filename, resource, op string) (func(), error) {
+	path := filepath.Join(directory, filename)
 	before, err := os.Lstat(path)
 	created := errors.Is(err, os.ErrNotExist)
 	if err != nil && !created {
 		return nil, filesystemFault(op, err)
 	}
 	if !created && (before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() || before.Mode().Perm()&0o077 != 0) {
-		return nil, fault.New(fault.PermissionDenied, op, errors.New("vault lock file is unsafe"))
+		return nil, fault.New(fault.PermissionDenied, op, fmt.Errorf("%s lock file is unsafe", resource))
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, privateFileMode)
 	if err != nil {
 		if errors.Is(err, syscall.ELOOP) {
-			return nil, fault.New(fault.PermissionDenied, op, errors.New("vault lock file must not be a symlink"))
+			return nil, fault.New(fault.PermissionDenied, op, fmt.Errorf("%s lock file must not be a symlink", resource))
 		}
 		return nil, filesystemFault(op, err)
 	}
@@ -156,10 +160,10 @@ func acquireVaultLock(directory, op string) (func(), error) {
 	}
 	stat, ok := opened.Sys().(*syscall.Stat_t)
 	if !opened.Mode().IsRegular() || opened.Mode().Perm()&0o077 != 0 || !ok || stat.Nlink != 1 {
-		return closeWithError(fault.New(fault.PermissionDenied, op, errors.New("vault lock file is unsafe")))
+		return closeWithError(fault.New(fault.PermissionDenied, op, fmt.Errorf("%s lock file is unsafe", resource)))
 	}
 	if !created && !os.SameFile(before, opened) {
-		return closeWithError(fault.New(fault.PermissionDenied, op, errors.New("vault lock file changed during secure open")))
+		return closeWithError(fault.New(fault.PermissionDenied, op, fmt.Errorf("%s lock file changed during secure open", resource)))
 	}
 	if created {
 		if err := file.Sync(); err != nil {
@@ -170,7 +174,7 @@ func acquireVaultLock(directory, op string) (func(), error) {
 		}
 	}
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		return closeWithError(fault.New(fault.Unavailable, op, errors.New("biometric vault is busy")))
+		return closeWithError(fault.New(fault.Unavailable, op, fmt.Errorf("%s is busy", resource)))
 	}
 	return func() {
 		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
