@@ -206,12 +206,12 @@ func (s *Service) ConfirmDelete(ctx context.Context, key EnrollmentKey) (Snapsho
 
 // ConfirmRetiredDelete clears one replaced template reference only after the
 // vault confirms that the retired template was physically deleted.
-func (s *Service) ConfirmRetiredDelete(ctx context.Context, key EnrollmentKey, templateRef string) (Snapshot, error) {
+func (s *Service) ConfirmRetiredDelete(ctx context.Context, key EnrollmentKey, expected TemplateReference) (Snapshot, error) {
 	if err := validateKey(key.ProfileRef, key.Capability); err != nil {
 		return Snapshot{}, err
 	}
-	if !validString(templateRef) {
-		return Snapshot{}, invalidInput("retired template reference is required")
+	if !validString(expected.TemplateRef) || !validString(expected.ModelVersion) {
+		return Snapshot{}, invalidInput("retired template reference and model version are required")
 	}
 	return s.change(ctx, func(next *Snapshot, _ time.Time) (bool, error) {
 		index := recordIndex(next.Records, key.ProfileRef, key.Capability)
@@ -222,8 +222,8 @@ func (s *Service) ConfirmRetiredDelete(ctx context.Context, key EnrollmentKey, t
 		if pending == nil {
 			return false, nil
 		}
-		if pending.TemplateRef != templateRef {
-			return false, fault.New(fault.InvalidInput, catalogOp, errors.New("retired template reference does not match pending deletion"))
+		if *pending != expected {
+			return false, fault.New(fault.InvalidInput, catalogOp, errors.New("retired template metadata does not match pending deletion"))
 		}
 		next.Records[index].PendingDelete = nil
 		return true, nil

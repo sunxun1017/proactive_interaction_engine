@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 
+	"proactive-interaction-engine/internal/application/biometric"
 	"proactive-interaction-engine/internal/application/readiness"
 	"proactive-interaction-engine/internal/domain/fault"
 )
@@ -34,7 +35,7 @@ const (
 type MasterKey [32]byte
 
 // MasterKeyProvider loads the device master key without exposing how it is
-// stored. An unavailable provider makes Store and Open fail closed.
+// stored. An unavailable provider makes Store, Open, and Delete fail closed.
 type MasterKeyProvider interface {
 	MasterKey(context.Context) (MasterKey, error)
 }
@@ -58,6 +59,8 @@ type Vault struct {
 	keys   MasterKeyProvider
 	random io.Reader
 }
+
+var _ biometric.TemplateDeleter = (*Vault)(nil)
 
 // New constructs a vault without creating files or loading the master key.
 func New(root string, keys MasterKeyProvider) (*Vault, error) {
@@ -203,8 +206,12 @@ func (v *Vault) Open(ctx context.Context, descriptor Descriptor) ([]byte, error)
 // Delete authenticates the complete descriptor before physically removing its
 // template. A missing template is idempotently accepted only after the master
 // key is available, so an unavailable secret store always fails closed.
-func (v *Vault) Delete(ctx context.Context, descriptor Descriptor) error {
+func (v *Vault) Delete(ctx context.Context, registration biometric.Registration) error {
 	const op = "delete biometric template"
+	descriptor := Descriptor{
+		ProfileRef: registration.ProfileRef, Capability: registration.Capability,
+		TemplateRef: registration.TemplateRef, ModelVersion: registration.ModelVersion,
+	}
 	if err := validateContext(op, ctx); err != nil {
 		return err
 	}

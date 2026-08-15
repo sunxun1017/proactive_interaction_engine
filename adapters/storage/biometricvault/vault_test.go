@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"proactive-interaction-engine/internal/application/biometric"
 	"proactive-interaction-engine/internal/application/readiness"
 	"proactive-interaction-engine/internal/domain/fault"
 )
@@ -177,18 +178,18 @@ func TestVaultDeleteAuthenticatesDescriptorAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if err := withoutKey.Delete(context.Background(), descriptor); !fault.IsCode(err, fault.Unavailable) {
+	if err := withoutKey.Delete(context.Background(), deletionRegistration(descriptor)); !fault.IsCode(err, fault.Unavailable) {
 		t.Fatalf("Delete(without key) error = %v, want Unavailable", err)
 	}
 	wrong := descriptor
 	wrong.ProfileRef = "profile-b"
-	if err := vault.Delete(context.Background(), wrong); !fault.IsCode(err, fault.AdapterRejected) {
+	if err := vault.Delete(context.Background(), deletionRegistration(wrong)); !fault.IsCode(err, fault.AdapterRejected) {
 		t.Fatalf("Delete(wrong descriptor) error = %v, want AdapterRejected", err)
 	}
-	if err := vault.Delete(context.Background(), descriptor); err != nil {
+	if err := vault.Delete(context.Background(), deletionRegistration(descriptor)); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
-	if err := vault.Delete(context.Background(), descriptor); err != nil {
+	if err := vault.Delete(context.Background(), deletionRegistration(descriptor)); err != nil {
 		t.Fatalf("Delete(idempotent) error = %v", err)
 	}
 	if _, err := os.Stat(onlyExpectedPath(t, root, descriptor)); !errors.Is(err, os.ErrNotExist) {
@@ -237,7 +238,7 @@ func TestVaultRejectsUnsafePathsAndTemplateFiles(t *testing.T) {
 		if _, err := vault.Open(context.Background(), descriptor); !fault.IsCode(err, fault.PermissionDenied) {
 			t.Fatalf("Open() error = %v, want PermissionDenied", err)
 		}
-		if err := vault.Delete(context.Background(), descriptor); !fault.IsCode(err, fault.PermissionDenied) {
+		if err := vault.Delete(context.Background(), deletionRegistration(descriptor)); !fault.IsCode(err, fault.PermissionDenied) {
 			t.Fatalf("Delete() error = %v, want PermissionDenied", err)
 		}
 		if contents, err := os.ReadFile(target); err != nil || string(contents) != "must-survive" {
@@ -262,7 +263,7 @@ func TestVaultRejectsUnsafePathsAndTemplateFiles(t *testing.T) {
 		if _, err := vault.Open(context.Background(), descriptor); !fault.IsCode(err, fault.PermissionDenied) {
 			t.Fatalf("Open() error = %v, want PermissionDenied", err)
 		}
-		if err := vault.Delete(context.Background(), descriptor); !fault.IsCode(err, fault.PermissionDenied) {
+		if err := vault.Delete(context.Background(), deletionRegistration(descriptor)); !fault.IsCode(err, fault.PermissionDenied) {
 			t.Fatalf("Delete() error = %v, want PermissionDenied", err)
 		}
 		contents, err := os.ReadFile(target)
@@ -285,7 +286,7 @@ func TestVaultRejectsUnsafePathsAndTemplateFiles(t *testing.T) {
 		if _, err := vault.Open(context.Background(), descriptor); !fault.IsCode(err, fault.PermissionDenied) {
 			t.Fatalf("Open() error = %v, want PermissionDenied", err)
 		}
-		if err := vault.Delete(context.Background(), descriptor); !fault.IsCode(err, fault.PermissionDenied) {
+		if err := vault.Delete(context.Background(), deletionRegistration(descriptor)); !fault.IsCode(err, fault.PermissionDenied) {
 			t.Fatalf("Delete() error = %v, want PermissionDenied", err)
 		}
 	})
@@ -454,6 +455,13 @@ func testDescriptor() Descriptor {
 	return Descriptor{
 		ProfileRef: "profile-a", Capability: readiness.FaceIdentification,
 		TemplateRef: "template-a", ModelVersion: "face.v1",
+	}
+}
+
+func deletionRegistration(descriptor Descriptor) biometric.Registration {
+	return biometric.Registration{
+		ProfileRef: descriptor.ProfileRef, Capability: descriptor.Capability,
+		TemplateRef: descriptor.TemplateRef, ModelVersion: descriptor.ModelVersion,
 	}
 }
 

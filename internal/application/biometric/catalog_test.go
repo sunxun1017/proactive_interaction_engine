@@ -186,8 +186,15 @@ func TestCatalogRequiresExplicitReplaceAndKeepsExactRegisterIdempotent(t *testin
 		ProfileRef: "profile-a", Capability: readiness.SpeakerVerification,
 	}
 	beforeWrongConfirmation := restarted.Current()
-	if _, err := restarted.ConfirmRetiredDelete(ctx, key, "wrong-template"); !fault.IsCode(err, fault.InvalidInput) {
+	if _, err := restarted.ConfirmRetiredDelete(ctx, key, TemplateReference{
+		TemplateRef: "wrong-template", ModelVersion: "speaker.v1",
+	}); !fault.IsCode(err, fault.InvalidInput) {
 		t.Fatalf("ConfirmRetiredDelete(wrong ref) error = %v, want InvalidInput", err)
+	}
+	if _, err := restarted.ConfirmRetiredDelete(ctx, key, TemplateReference{
+		TemplateRef: "template-v1", ModelVersion: "speaker.wrong",
+	}); !fault.IsCode(err, fault.InvalidInput) {
+		t.Fatalf("ConfirmRetiredDelete(wrong model) error = %v, want InvalidInput", err)
 	}
 	if after := restarted.Current(); !reflect.DeepEqual(after, beforeWrongConfirmation) {
 		t.Fatalf("wrong retired reference changed state: %#v != %#v", after, beforeWrongConfirmation)
@@ -197,7 +204,9 @@ func TestCatalogRequiresExplicitReplaceAndKeepsExactRegisterIdempotent(t *testin
 	if _, err := restarted.Replace(ctx, third); !fault.IsCode(err, fault.PolicyBlocked) {
 		t.Fatalf("Replace() with pending deletion error = %v, want PolicyBlocked", err)
 	}
-	cleaned, err := restarted.ConfirmRetiredDelete(ctx, key, "template-v1")
+	cleaned, err := restarted.ConfirmRetiredDelete(ctx, key, TemplateReference{
+		TemplateRef: "template-v1", ModelVersion: "speaker.v1",
+	})
 	if err != nil {
 		t.Fatalf("ConfirmRetiredDelete() error = %v", err)
 	}
