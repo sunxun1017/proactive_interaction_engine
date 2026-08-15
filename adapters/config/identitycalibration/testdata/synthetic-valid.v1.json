@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "calibration_id": "synthetic-identity-calibration.v1",
+  "policy_version": "synthetic-identity-policy.v1",
+  "usage_scope": "PERSONALIZATION_ONLY",
+  "security_authentication_allowed": false,
+  "models": [
+    {
+      "role": "FACE_DETECTION",
+      "model_id": "opencv-yunet-2023mar",
+      "sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
+    },
+    {
+      "role": "FACE_EMBEDDING",
+      "model_id": "opencv-sface-2021dec",
+      "sha256": "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79"
+    },
+    {
+      "role": "FACE_LIVENESS",
+      "model_id": "omz-anti-spoof-mn3",
+      "sha256": "c4c99af04603b62d7e44f6f4daeb33e0daeccc696008c0b1d62f6f5cebbb3262"
+    },
+    {
+      "role": "SPEAKER_EMBEDDING",
+      "model_id": "modelscope-eres2net-speaker-v1.0.5",
+      "sha256": "ad78a02cab9dc23385c3fe235d1c3a370c0bd89ef192d0250546b370b0b8f227"
+    }
+  ],
+  "runtime": {
+    "inference_mode": "CUDA_ONLY",
+    "cuda_required": true,
+    "cpu_fallback_allowed": false,
+    "cuda_device_index": 0,
+    "target_hardware_profile_id": "synthetic-nvidia-gpu.v1",
+    "os_release": "ubuntu-24.04",
+    "architecture": "amd64",
+    "gpu_vendor": "NVIDIA",
+    "gpu_model": "Synthetic CUDA GPU",
+    "gpu_compute_capability": "8.9",
+    "gpu_memory_bytes": 8589934592,
+    "driver_version": "580.173.02",
+    "cuda_version": "12.8",
+    "cudnn_version": "9.19",
+    "python_version": "3.10.20",
+    "onnxruntime_gpu_version": "1.23.2",
+    "opencv_version": "4.10.0",
+    "torch_version": "2.11.0+cu128",
+    "torchaudio_version": "2.11.0+cu128",
+    "camera_profile_id": "synthetic-camera-640x480-bgr5.v1",
+    "microphone_profile_id": "synthetic-microphone-16khz-mono.v1"
+  },
+  "protocols": {
+    "face_detection": {
+      "protocol_id": "yunet-detection.v1",
+      "input_width": 640,
+      "input_height": 640,
+      "pixel_format": "BGR_U8",
+      "resize_rule": "ASPECT_FIT_ZERO_PAD_TOP_LEFT_V1",
+      "tensor_rule": "NCHW_FLOAT32_SCALE_1_MEAN_0_V1",
+      "score_mapping": "SQRT_CLASS_OBJECTNESS_V1",
+      "score_threshold_ppm": 650000,
+      "nms_rule": "STABLE_SCORE_DESC_ORDINAL_INTEGER_BOX_IOU_LT_V1",
+      "nms_threshold_ppm": 300000,
+      "top_k": 32
+    },
+    "face_identification": {
+      "protocol_id": "sface-identification.v1",
+      "alignment_rule": "SFACE_5_POINT_SIMILARITY_112X112_V1",
+      "pixel_rule": "BGR_TO_RGB_NCHW_FLOAT32_SCALE_1_MEAN_0_V1",
+      "embedding_rule": "L2_NORMALIZED_128D_V1",
+      "score_mapping": "AFFINE_COSINE_V1"
+    },
+    "face_liveness": {
+      "protocol_id": "anti-spoof-liveness.v1",
+      "crop_rule": "CLIPPED_DETECTED_FACE_BOX_V1",
+      "input_rule": "BGR_TO_RGB_128X128_FLOAT32_V1",
+      "normalization_rule": "RGB_MEAN_1512405_1195950_1078395_SCALE_630105_564570_550035_V1",
+      "score_mapping": "REAL_OUTPUT_INDEX_0_V1",
+      "real_output_index": 0,
+      "spoof_output_index": 1,
+      "decision_rule": "REAL_SCORE_GTE_THRESHOLD_V1",
+      "threshold_ppm": 700000
+    },
+    "speaker": {
+      "protocol_id": "eres2net-speaker.v1",
+      "pcm_rule": "MONO_S16LE_16000HZ_V1",
+      "clip_rule_id": "FIXED_BOUNDED_VOICED_CLIP_V1",
+      "minimum_clip_us": 1000000,
+      "maximum_clip_us": 5000000,
+      "minimum_voiced_us": 600000,
+      "maximum_leading_silence_us": 200000,
+      "maximum_trailing_silence_us": 200000,
+      "vad_rule_id": "WEBRTC_VAD_MODE_2_20MS_V1",
+      "fbank_rule_id": "TORCHAUDIO_KALDI_80_BIN_EXPLICIT_V1",
+      "enrollment_minimum_clips": 3,
+      "enrollment_maximum_clips": 8,
+      "enrollment_aggregation_rule": "MEAN_THEN_L2_NORMALIZE_V1",
+      "score_mapping": "AFFINE_COSINE_V1"
+    }
+  },
+  "application_policy": {
+    "face_identification_threshold_ppm": 800000,
+    "speaker_identification_threshold_ppm": 780000,
+    "speaker_verification_threshold_ppm": 830000,
+    "require_face_liveness": true
+  },
+  "provider_latency": [
+    {
+      "capability": "FACE_DETECTION",
+      "provider_id": "synthetic-face-detection",
+      "sample_count": 1000,
+      "quantile_rule": "NEAREST_RANK_V1",
+      "measurement_boundary": "CAPTURE_OR_WORK_TO_EVIDENCE_TERMINAL_V1",
+      "p95_us": 40000,
+      "p99_us": 65000,
+      "observed_maximum_us": 80000,
+      "declared_maximum_us": 100000
+    },
+    {
+      "capability": "FACE_IDENTIFICATION",
+      "provider_id": "synthetic-face-identification",
+      "sample_count": 1000,
+      "quantile_rule": "NEAREST_RANK_V1",
+      "measurement_boundary": "CAPTURE_OR_WORK_TO_EVIDENCE_TERMINAL_V1",
+      "p95_us": 90000,
+      "p99_us": 120000,
+      "observed_maximum_us": 150000,
+      "declared_maximum_us": 200000
+    },
+    {
+      "capability": "FACE_LIVENESS",
+      "provider_id": "synthetic-face-liveness",
+      "sample_count": 1000,
+      "quantile_rule": "NEAREST_RANK_V1",
+      "measurement_boundary": "CAPTURE_OR_WORK_TO_EVIDENCE_TERMINAL_V1",
+      "p95_us": 100000,
+      "p99_us": 140000,
+      "observed_maximum_us": 170000,
+      "declared_maximum_us": 220000
+    },
+    {
+      "capability": "SPEAKER_IDENTIFICATION",
+      "provider_id": "synthetic-speaker-identification",
+      "sample_count": 1000,
+      "quantile_rule": "NEAREST_RANK_V1",
+      "measurement_boundary": "CAPTURE_OR_WORK_TO_EVIDENCE_TERMINAL_V1",
+      "p95_us": 1600000,
+      "p99_us": 1900000,
+      "observed_maximum_us": 2100000,
+      "declared_maximum_us": 2500000
+    },
+    {
+      "capability": "SPEAKER_VERIFICATION",
+      "provider_id": "synthetic-speaker-verification",
+      "sample_count": 1000,
+      "quantile_rule": "NEAREST_RANK_V1",
+      "measurement_boundary": "CAPTURE_OR_WORK_TO_EVIDENCE_TERMINAL_V1",
+      "p95_us": 1500000,
+      "p99_us": 1800000,
+      "observed_maximum_us": 2000000,
+      "declared_maximum_us": 2400000
+    }
+  ],
+  "provenance": {
+    "aggregate_curve_report_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "aggregate_latency_report_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+  }
+}
